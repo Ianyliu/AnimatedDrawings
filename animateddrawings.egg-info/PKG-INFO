@@ -1,3 +1,17 @@
+Metadata-Version: 2.4
+Name: animateddrawings
+Version: 0.1.0
+Summary: Add your description here
+Author: FAIR
+Author-email: jesse.smith@meta.com
+Requires-Python: >=3.8.13
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: author
+Dynamic: author-email
+Dynamic: license-file
+Dynamic: requires-python
+
 # Animated Drawings
 
 ![Sequence 02](https://user-images.githubusercontent.com/6675724/219223438-2c93f9cb-d4b5-45e9-a433-149ed76affa6.gif)
@@ -159,22 +173,15 @@ Getting Docker working can be complicated, and it's unnecessary if you just want
 Contributer @Gravityrail kindly submitted a script that sets up Torchserve locally on MacOS, no Docker required.
 
 ```bash
-brew install uv
-brew install openjdk@17
-uv venv .venv
-uv pip install -e .
 cd torchserve
 ./setup_macos.sh
-export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
-export PATH="$JAVA_HOME/bin:$PATH"
-../.venv/bin/torchserve --start --ts-config config.local.properties --foreground
+torchserve --start --ts-config config.local.properties --foreground
 ```
 
 With torchserve running locally like this, you can use the same command as before to make the garlic dance:
 
 ```bash 
-cd ../examples
-../.venv/bin/python image_to_animation.py drawings/garlic.png garlic_out
+python image_to_animation.py drawings/garlic.png garlic_out
 ```
 ### Fixing bad predictions
 You may notice that, when you ran `python image_to_animation.py drawings/garlic.png garlic_out`, there were additional non-video files within `garlic_out`.
