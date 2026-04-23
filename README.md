@@ -168,13 +168,15 @@ cd torchserve
 ./setup_macos.sh
 export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
 export PATH="$JAVA_HOME/bin:$PATH"
-../.venv/bin/torchserve --start --ts-config config.local.properties --foreground
+../.venv/bin/torchserve --start --disable-token-auth --ts-config config.local.properties --foreground
 
 # in another terminal, verify TorchServe is ready before running the example
 curl http://localhost:8080/ping
 ```
 
 If your existing `./.venv/bin/python` points into Miniconda or Anaconda, recreate `./.venv` with the commands above before running `setup_macos.sh`. The TorchServe pose-estimator workers load `xtcocotools`, and that native extension has been failing on macOS when the `uv` environment is built on top of a Conda Python.
+
+The macOS command above explicitly uses `--disable-token-auth`. Without that flag, current TorchServe releases enable token auth by default, `curl http://localhost:8080/ping` returns HTTP `400`, and the local example scripts in this repo do not send the required auth headers.
 
 With torchserve running locally like this, you can use the same command as before to make the garlic dance:
 

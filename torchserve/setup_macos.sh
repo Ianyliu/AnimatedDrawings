@@ -28,6 +28,14 @@ get_java_major_version() {
 	fi
 }
 
+sanitize_native_build_env() {
+	# Conda shell flags leak Homebrew/Conda include and rpath settings into native extensions.
+	unset CONDA_DEFAULT_ENV CONDA_EXE CONDA_PREFIX CONDA_PREFIX_1 CONDA_PROMPT_MODIFIER CONDA_PYTHON_EXE CONDA_SHLVL
+	unset DYLD_FALLBACK_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_LIBRARY_PATH DYLD_INSERT_LIBRARIES
+	unset LIBRARY_PATH CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH
+	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS
+}
+
 if [[ ! -x "${PYTHON_BIN}" ]]; then
 	echo "Expected a uv-managed virtual environment at ${VENV_DIR}."
 	echo "Create it from the repository root with:"
@@ -62,6 +70,8 @@ fi
 
 cd "${SCRIPT_DIR}"
 
+sanitize_native_build_env
+
 JAVA_MAJOR_VERSION="$(get_java_major_version)"
 if (( JAVA_MAJOR_VERSION < 11 )); then
 	echo "Java 11+ is required for TorchServe; found Java ${JAVA_MAJOR_VERSION}."
@@ -78,17 +88,35 @@ if (( JAVA_MAJOR_VERSION < 11 )); then
 fi
 
 echo "*** Installing packages"
+# Bootstrap build tooling in the target venv because chumpy's build expects pip
+# and xtcocotools needs a stable numpy/Cython toolchain available in-env.
+"${PYTHON_BIN}" -m ensurepip --upgrade --default-pip
+"${UV_BIN}" pip install --python "${PYTHON_BIN}" -U pip "setuptools<81" wheel "numpy==1.23.3" "cython>=0.27.3,<3"
+
 if [[ ! -d xtcocoapi ]]; then
 	git clone https://github.com/jin-s13/xtcocoapi.git
 fi
 cd xtcocoapi
-"${UV_BIN}" pip install --python "${PYTHON_BIN}" -r requirements.txt
-"${UV_BIN}" pip install --python "${PYTHON_BIN}" .
-cd ..
+"${PYTHON_BIN}" - <<'PY'
+from pathlib import Path
+import shutil
 
-# Bootstrap build tooling in the target venv because chumpy's build expects pip.
-"${PYTHON_BIN}" -m ensurepip --upgrade --default-pip
-"${UV_BIN}" pip install --python "${PYTHON_BIN}" -U pip "setuptools<81" wheel
+for name in ("build", "dist", "xtcocotools.egg-info", "xtcocotools/_mask.c"):
+    path = Path(name)
+    if path.exists():
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+PY
+"${PYTHON_BIN}" -m cython xtcocotools/_mask.pyx -o xtcocotools/_mask.c
+"${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-build-isolation --no-deps --refresh --reinstall .
+cd ..
+"${PYTHON_BIN}" - <<'PY'
+import xtcocotools._mask as mask
+print("Verified xtcocotools._mask:", mask.__file__)
+PY
+
 "${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-build-isolation-package chumpy -U openmim torch==1.13.0 torchserve mmdet==2.27.0 mmpose==0.29.0 numpy==1.23.3 platformdirs requests==2.31.0 scipy==1.10.0 tomli tqdm==4.64.1
 # openmim still imports pkg_resources, so force a setuptools version that still ships it.
 "${UV_BIN}" pip install --python "${PYTHON_BIN}" "setuptools<81"
@@ -108,4 +136,4 @@ curl -L https://github.com/facebookresearch/AnimatedDrawings/releases/download/v
 echo "*** Now run torchserve:"
 echo "export JAVA_HOME=\"${JAVA_HOME:-$(/usr/libexec/java_home 2>/dev/null || true)}\""
 echo "export PATH=\"\${JAVA_HOME}/bin:\${PATH}\""
-echo "${TORCHSERVE_BIN} --start --ts-config config.local.properties --foreground"
+echo "${TORCHSERVE_BIN} --start --disable-token-auth --ts-config config.local.properties --foreground"
