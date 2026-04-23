@@ -178,6 +178,10 @@ If your existing `./.venv/bin/python` points into Miniconda or Anaconda, recreat
 
 The macOS command above explicitly uses `--disable-token-auth`. Without that flag, current TorchServe releases enable token auth by default, `curl http://localhost:8080/ping` returns HTTP `400`, and the local example scripts in this repo do not send the required auth headers.
 
+The local macOS config also pins TorchServe's internal gRPC listeners away from the defaults `7070/7071`, which are already occupied on some machines. If you have customized `torchserve/config.local.properties`, make sure `grpc_inference_port` and `grpc_management_port` do not conflict with another local service.
+
+`setup_macos.sh` also installs the local `animated_drawings` package into `./.venv` and adds the renderer/example dependencies used by `image_to_animation.py`, including `scikit-image`, `glfw`, and `PyOpenGL`.
+
 With torchserve running locally like this, you can use the same command as before to make the garlic dance:
 
 ```bash 

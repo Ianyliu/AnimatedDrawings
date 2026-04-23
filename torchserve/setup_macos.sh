@@ -92,6 +92,8 @@ echo "*** Installing packages"
 # and xtcocotools needs a stable numpy/Cython toolchain available in-env.
 "${PYTHON_BIN}" -m ensurepip --upgrade --default-pip
 "${UV_BIN}" pip install --python "${PYTHON_BIN}" -U pip "setuptools<81" wheel "numpy==1.23.3" "cython>=0.27.3,<3"
+# Make the repo package importable inside .venv without re-resolving all project deps.
+"${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-deps -e "${REPO_ROOT}"
 
 if [[ ! -d xtcocoapi ]]; then
 	git clone https://github.com/jin-s13/xtcocoapi.git
@@ -117,15 +119,32 @@ import xtcocotools._mask as mask
 print("Verified xtcocotools._mask:", mask.__file__)
 PY
 
-"${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-build-isolation-package chumpy -U openmim torch==1.13.0 torchserve mmdet==2.27.0 mmpose==0.29.0 numpy==1.23.3 platformdirs requests==2.31.0 scipy==1.10.0 tomli tqdm==4.64.1
+"${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-build-isolation-package chumpy -U openmim torch==1.13.0 torchserve mmdet==2.27.0 mmpose==0.29.0 numpy==1.23.3 platformdirs requests==2.31.0 scipy==1.10.0 tomli tqdm==4.64.1 scikit-image scikit-learn shapely glfw==2.5.5 PyOpenGL==3.1.6
 # openmim still imports pkg_resources, so force a setuptools version that still ships it.
 "${UV_BIN}" pip install --python "${PYTHON_BIN}" "setuptools<81"
 "${PYTHON_BIN}" -m mim install mmcv-full==1.7.0
 "${PYTHON_BIN}" - <<'PY'
+import animated_drawings
+import glfw
 import mmcv
 import mmdet
 import mmpose
-print("Verified imports:", mmcv.__version__, mmdet.__version__, mmpose.__version__)
+import OpenGL
+import shapely
+import skimage
+import sklearn
+print(
+    "Verified imports:",
+    animated_drawings.__file__,
+    skimage.__version__,
+    sklearn.__version__,
+    shapely.__version__,
+    getattr(OpenGL, "__version__", "unknown"),
+    getattr(glfw, "__version__", "unknown"),
+    mmcv.__version__,
+    mmdet.__version__,
+    mmpose.__version__,
+)
 PY
 
 echo "*** Downloading models"
