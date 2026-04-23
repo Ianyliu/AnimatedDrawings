@@ -161,14 +161,20 @@ Contributer @Gravityrail kindly submitted a script that sets up Torchserve local
 ```bash
 brew install uv
 brew install openjdk@17
-uv venv .venv
+uv python install 3.9
+uv venv --python 3.9 .venv
 uv pip install -e .
 cd torchserve
 ./setup_macos.sh
 export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
 export PATH="$JAVA_HOME/bin:$PATH"
 ../.venv/bin/torchserve --start --ts-config config.local.properties --foreground
+
+# in another terminal, verify TorchServe is ready before running the example
+curl http://localhost:8080/ping
 ```
+
+If your existing `./.venv/bin/python` points into Miniconda or Anaconda, recreate `./.venv` with the commands above before running `setup_macos.sh`. The TorchServe pose-estimator workers load `xtcocotools`, and that native extension has been failing on macOS when the `uv` environment is built on top of a Conda Python.
 
 With torchserve running locally like this, you can use the same command as before to make the garlic dance:
 

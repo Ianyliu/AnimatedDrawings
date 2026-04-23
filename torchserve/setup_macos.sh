@@ -31,13 +31,32 @@ get_java_major_version() {
 if [[ ! -x "${PYTHON_BIN}" ]]; then
 	echo "Expected a uv-managed virtual environment at ${VENV_DIR}."
 	echo "Create it from the repository root with:"
-	echo "  uv venv .venv"
+	echo "  uv python install 3.9"
+	echo "  uv venv --python 3.9 .venv"
 	echo "  uv pip install -e ."
 	exit 1
 fi
 
 if [[ -z "${UV_BIN}" ]]; then
 	echo "uv could not be found on PATH."
+	exit 1
+fi
+
+if "${PYTHON_BIN}" - <<'PY'
+import sys
+version = sys.version.lower()
+prefix = sys.prefix.lower()
+base_prefix = sys.base_prefix.lower()
+raise SystemExit(0 if any(token in version or token in prefix or token in base_prefix for token in ("conda", "miniconda", "anaconda")) else 1)
+PY
+then
+	echo "The virtual environment is using a Conda-backed Python interpreter."
+	echo "That breaks the native xtcocotools extension used by local TorchServe on macOS."
+	echo "Recreate .venv from the repository root with:"
+	echo "  rm -rf .venv"
+	echo "  uv python install 3.9"
+	echo "  uv venv --python 3.9 .venv"
+	echo "  uv pip install -e ."
 	exit 1
 fi
 
@@ -70,10 +89,16 @@ cd ..
 # Bootstrap build tooling in the target venv because chumpy's build expects pip.
 "${PYTHON_BIN}" -m ensurepip --upgrade --default-pip
 "${UV_BIN}" pip install --python "${PYTHON_BIN}" -U pip "setuptools<81" wheel
-"${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-build-isolation-package chumpy -U openmim torch==1.13.0 torchserve mmdet==2.27.0 mmpose==0.29.0 numpy==1.23.3 requests==2.31.0 scipy==1.10.0 tqdm==4.64.1
+"${UV_BIN}" pip install --python "${PYTHON_BIN}" --no-build-isolation-package chumpy -U openmim torch==1.13.0 torchserve mmdet==2.27.0 mmpose==0.29.0 numpy==1.23.3 platformdirs requests==2.31.0 scipy==1.10.0 tomli tqdm==4.64.1
 # openmim still imports pkg_resources, so force a setuptools version that still ships it.
 "${UV_BIN}" pip install --python "${PYTHON_BIN}" "setuptools<81"
 "${PYTHON_BIN}" -m mim install mmcv-full==1.7.0
+"${PYTHON_BIN}" - <<'PY'
+import mmcv
+import mmdet
+import mmpose
+print("Verified imports:", mmcv.__version__, mmdet.__version__, mmpose.__version__)
+PY
 
 echo "*** Downloading models"
 mkdir -p ./model-store
