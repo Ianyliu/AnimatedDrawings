@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Animated Drawings Video Pose</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="controls">
+        <div class="panel">
+          <h1>Video Pose Animation</h1>
+          <div class="grid">
+            <label>
+              Motion
+              <select id="motionSelect"></select>
+            </label>
+            <button id="useMotion">Use Motion</button>
+          </div>
+          <div class="grid">
+            <label>
+              Upload BVH
+              <input id="bvhUpload" type="file" accept=".bvh">
+            </label>
+            <button id="uploadBvh">Use BVH</button>
+          </div>
+          <div class="record">
+            <video id="recordPreview" muted playsinline></video>
+            <div class="buttonRow">
+              <button id="startRecord">Record</button>
+              <button id="stopRecord" disabled>Stop</button>
+              <label class="fileButton">
+                Upload Video
+                <input id="videoUpload" type="file" accept="video/*">
+              </label>
+              <button id="processVideo">Estimate Pose</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Drawing</h2>
+          <div class="grid">
+            <label>
+              Character
+              <select id="characterSelect"></select>
+            </label>
+            <button id="useCharacter">Use Character</button>
+          </div>
+          <div class="grid">
+            <label>
+              Upload Drawing
+              <input id="drawingUpload" type="file" accept="image/*">
+            </label>
+            <button id="uploadDrawing">Estimate Joints</button>
+          </div>
+          <img id="jointOverlay" alt="">
+        </div>
+
+        <div class="panel actions">
+          <button id="renderAnimation">Render Animation</button>
+          <div id="status"></div>
+        </div>
+      </section>
+
+      <section class="stage">
+        <div class="viewer">
+          <h2>Source</h2>
+          <video id="sourceVideo" controls playsinline></video>
+        </div>
+        <div class="viewer">
+          <h2>Animation</h2>
+          <video id="animationVideo" controls playsinline></video>
+        </div>
+        <div class="transport">
+          <button id="playBoth">Play</button>
+          <button id="pauseBoth">Pause</button>
+          <input id="timeline" type="range" min="0" max="0" step="0.01" value="0">
+        </div>
+      </section>
+    </main>
+    <script>
+      window.APP_MAX_SECONDS = {{ max_seconds|tojson }};
+    </script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

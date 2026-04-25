@@ -24,7 +24,9 @@ setup(
         'requests==2.31.0',
         'torchserve==0.12.0',
         'tqdm==4.66.3',
-        'Flask==2.3.2'
+        'Flask==2.3.2',
+        'Werkzeug<3',
+        'mediapipe>=0.10.14,<0.10.22'
     ],
     packages=find_packages(),
 )

@@ -269,6 +269,29 @@ It will show this in a new window:
 
 ![Sequence 01](https://user-images.githubusercontent.com/6675724/233157474-1506d219-c085-49f9-a537-43d6c1bae93a.gif)
 
+### Creating Motion From Your Own Video
+This repo also includes an experimental local video pose workflow. It uses MediaPipe to estimate a human pose from a short video, writes a MediaPipe-style BVH file, and then uses the existing Animated Drawings retargeter.
+
+Videos are limited to 10 seconds in this first version.
+
+To convert a video into a motion config from the command line:
+
+````bash
+python examples/video_to_motion.py path/to/video.mp4 ./video_motion_out --max-seconds 10
+````
+
+This writes `pose_sequence.json`, `pose_overlay.mp4`, `motion.bvh`, and `motion.yaml` in the output directory. You can use `motion.yaml` anywhere a normal motion config is accepted. It pairs with `examples/config/retarget/mediapipe_pfp.yaml`.
+
+To use the browser-based local GUI:
+
+````bash
+python examples/video_app.py --port 5060
+````
+
+Open `http://127.0.0.1:5060`. The app can record or upload a short video, upload a MediaPipe-compatible BVH file, select an existing motion, select one of the bundled character rigs, upload a drawing, preview estimated joints, and render synchronized source/animation playback.
+
+Bundled characters work without TorchServe. Uploading a new drawing still uses the existing image-to-annotations path, so TorchServe must be running and healthy before using that part of the app.
+
 
 
 
