@@ -3,9 +3,18 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-from pathlib import Path
 import logging
-from pkg_resources import resource_filename
+from pathlib import Path
+import yaml
+
+
+EXAMPLES_DIR = Path(__file__).resolve().parent
+DEFAULT_MOTION_CFG = EXAMPLES_DIR / 'config/motion/dab.yaml'
+DEFAULT_RETARGET_CFG = EXAMPLES_DIR / 'config/retarget/fair1_ppf.yaml'
+DEFAULT_RETARGET_CFG_BY_BVH = {
+    'jumping_jacks.bvh': EXAMPLES_DIR / 'config/retarget/cmu1_pfp.yaml',
+    'walk-cycle.bvh': EXAMPLES_DIR / 'config/retarget/walk_cycle_pfp.yaml',
+}
 
 
 def image_to_animation(img_fn: str, char_anno_dir: str, motion_cfg_fn: str, retarget_cfg_fn: str):
@@ -21,6 +30,22 @@ def image_to_animation(img_fn: str, char_anno_dir: str, motion_cfg_fn: str, reta
 
     # create the animation
     annotations_to_animation(char_anno_dir, motion_cfg_fn, retarget_cfg_fn)
+
+
+def get_default_retarget_cfg(motion_cfg_fn: str) -> str:
+    """Return the bundled retarget config that matches a known motion config."""
+    try:
+        with open(motion_cfg_fn, 'r') as f:
+            motion_cfg = yaml.safe_load(f) or {}
+    except OSError:
+        return str(DEFAULT_RETARGET_CFG)
+
+    bvh_filepath = motion_cfg.get('filepath')
+    if not isinstance(bvh_filepath, str):
+        return str(DEFAULT_RETARGET_CFG)
+
+    bvh_name = Path(bvh_filepath).name
+    return str(DEFAULT_RETARGET_CFG_BY_BVH.get(bvh_name, DEFAULT_RETARGET_CFG))
 
 
 def parse_args():
@@ -42,16 +67,17 @@ def parse_args():
     parser.add_argument(
         "motion_cfg_fn",
         nargs="?",
-        default=resource_filename(__name__, 'config/motion/dab.yaml'),
+        default=str(DEFAULT_MOTION_CFG),
         help="Optional motion config YAML. Defaults to config/motion/dab.yaml.",
     )
     parser.add_argument(
         "retarget_cfg_fn",
         nargs="?",
-        default=resource_filename(__name__, 'config/retarget/fair1_ppf.yaml'),
+        default=None,
         help=(
-            "Optional retarget config YAML. Defaults to "
-            "config/retarget/fair1_ppf.yaml."
+            "Optional retarget config YAML. If omitted, a bundled retarget "
+            "config is selected to match the chosen motion config when "
+            "available."
         ),
     )
     return parser.parse_args()
@@ -64,12 +90,13 @@ def main():
     logging.basicConfig(filename=f'{log_dir}/log.txt', level=logging.DEBUG)
 
     args = parse_args()
+    retarget_cfg_fn = args.retarget_cfg_fn or get_default_retarget_cfg(args.motion_cfg_fn)
 
     image_to_animation(
         args.img_fn,
         args.char_anno_dir,
         args.motion_cfg_fn,
-        args.retarget_cfg_fn,
+        retarget_cfg_fn,
     )
 
 

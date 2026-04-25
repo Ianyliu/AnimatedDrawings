@@ -1,0 +1,8 @@
+controller:
+  MODE: video_render
+  OUTPUT_VIDEO_PATH: /Users/ianliu/code/AnimatedDrawings/examples/garlic_cycle_out/video.gif
+scene:
+  ANIMATED_CHARACTERS:
+  - character_cfg: /Users/ianliu/code/AnimatedDrawings/examples/garlic_cycle_out/char_cfg.yaml
+    motion_cfg: /Users/ianliu/code/AnimatedDrawings/examples/config/motion/walk-cycle.yaml
+    retarget_cfg: /Users/ianliu/code/AnimatedDrawings/examples/config/retarget/walk_cycle_pfp.yaml

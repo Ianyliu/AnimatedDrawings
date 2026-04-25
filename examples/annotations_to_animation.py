@@ -2,12 +2,20 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import argparse
 import animated_drawings.render
 import logging
 from pathlib import Path
-import sys
 import yaml
-from pkg_resources import resource_filename
+
+
+EXAMPLES_DIR = Path(__file__).resolve().parent
+DEFAULT_MOTION_CFG = EXAMPLES_DIR / 'config/motion/dab.yaml'
+DEFAULT_RETARGET_CFG = EXAMPLES_DIR / 'config/retarget/fair1_ppf.yaml'
+DEFAULT_RETARGET_CFG_BY_BVH = {
+    'jumping_jacks.bvh': EXAMPLES_DIR / 'config/retarget/cmu1_pfp.yaml',
+    'walk-cycle.bvh': EXAMPLES_DIR / 'config/retarget/walk_cycle_pfp.yaml',
+}
 
 
 def annotations_to_animation(char_anno_dir: str, motion_cfg_fn: str, retarget_cfg_fn: str):
@@ -40,20 +48,65 @@ def annotations_to_animation(char_anno_dir: str, motion_cfg_fn: str, retarget_cf
     animated_drawings.render.start(output_mvc_cfn_fn)
 
 
-if __name__ == '__main__':
+def get_default_retarget_cfg(motion_cfg_fn: str) -> str:
+    """Return the bundled retarget config that matches a known motion config."""
+    try:
+        with open(motion_cfg_fn, 'r') as f:
+            motion_cfg = yaml.safe_load(f) or {}
+    except OSError:
+        return str(DEFAULT_RETARGET_CFG)
+
+    bvh_filepath = motion_cfg.get('filepath')
+    if not isinstance(bvh_filepath, str):
+        return str(DEFAULT_RETARGET_CFG)
+
+    bvh_name = Path(bvh_filepath).name
+    return str(DEFAULT_RETARGET_CFG_BY_BVH.get(bvh_name, DEFAULT_RETARGET_CFG))
+
+
+def parse_args():
+    """Parse CLI arguments for the annotations-to-animation example pipeline."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Render an animation from an annotated character directory and a "
+            "selected motion config."
+        )
+    )
+    parser.add_argument(
+        "char_anno_dir",
+        help="Directory containing char_cfg.yaml and the generated annotation assets.",
+    )
+    parser.add_argument(
+        "motion_cfg_fn",
+        nargs="?",
+        default=str(DEFAULT_MOTION_CFG),
+        help="Optional motion config YAML. Defaults to config/motion/dab.yaml.",
+    )
+    parser.add_argument(
+        "retarget_cfg_fn",
+        nargs="?",
+        default=None,
+        help=(
+            "Optional retarget config YAML. If omitted, a bundled retarget "
+            "config is selected to match the chosen motion config when "
+            "available."
+        ),
+    )
+    return parser.parse_args()
+
+
+def main():
+    """Run the animation renderer from CLI arguments and default config fallbacks."""
 
     log_dir = Path('./logs')
     log_dir.mkdir(exist_ok=True, parents=True)
     logging.basicConfig(filename=f'{log_dir}/log.txt', level=logging.DEBUG)
 
-    char_anno_dir = sys.argv[1]
-    if len(sys.argv) > 2:
-        motion_cfg_fn = sys.argv[2]
-    else:
-        motion_cfg_fn = resource_filename(__name__, 'config/motion/dab.yaml')
-    if len(sys.argv) > 3:
-        retarget_cfg_fn = sys.argv[3]
-    else:
-        retarget_cfg_fn = resource_filename(__name__, 'config/retarget/fair1_ppf.yaml')
+    args = parse_args()
+    retarget_cfg_fn = args.retarget_cfg_fn or get_default_retarget_cfg(args.motion_cfg_fn)
 
-    annotations_to_animation(char_anno_dir, motion_cfg_fn, retarget_cfg_fn)
+    annotations_to_animation(args.char_anno_dir, args.motion_cfg_fn, retarget_cfg_fn)
+
+
+if __name__ == '__main__':
+    main()
