@@ -116,8 +116,20 @@ def write_pose_overlay(
     return transcode_to_browser_mp4(output_path)
 
 
-def transcode_to_browser_mp4(input_path: Path, output_path: Optional[Path] = None) -> Path:
-    """Convert an MP4 to browser-friendly H.264 when ffmpeg is available."""
+def transcode_to_browser_mp4(
+    input_path: Path,
+    output_path: Optional[Path] = None,
+    *,
+    strict: bool = False,
+    timeout: Optional[float] = None,
+) -> Path:
+    """Convert an MP4 to browser-friendly H.264 when ffmpeg is available.
+
+    The historical helper was best-effort and returned the source video if
+    ffmpeg was missing or failed. Product-facing browser previews need stricter
+    behavior, so strict mode raises a PoseVideoError instead of returning a
+    potentially unsupported file.
+    """
 
     input_path = Path(input_path)
     output_path = Path(output_path or input_path)
@@ -125,6 +137,8 @@ def transcode_to_browser_mp4(input_path: Path, output_path: Optional[Path] = Non
 
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
+        if strict:
+            raise PoseVideoError("ffmpeg is required to prepare a browser-playable video.")
         if output_path != input_path:
             shutil.copy2(input_path, output_path)
         return output_path
@@ -169,13 +183,25 @@ def transcode_to_browser_mp4(input_path: Path, output_path: Optional[Path] = Non
         ],
     ]
 
+    failures = []
     for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            failures.append(f"ffmpeg timed out after {timeout:g}s")
+            if tmp_path != input_path and tmp_path.exists():
+                tmp_path.unlink()
+            continue
         if result.returncode == 0 and tmp_path.exists() and tmp_path.stat().st_size > 0:
             if replace_input:
                 tmp_path.replace(output_path)
             return output_path
+        detail = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+        failures.append(detail or f"ffmpeg exited with code {result.returncode}")
 
+    if strict:
+        detail = failures[-1] if failures else "unknown ffmpeg error"
+        raise PoseVideoError(f"ffmpeg transcode failed. {detail}")
     if output_path != input_path:
         shutil.copy2(input_path, output_path)
     return output_path

@@ -12,9 +12,10 @@ from scipy import ndimage
 from pathlib import Path
 import yaml
 import logging
+from typing import Optional
 
 
-def image_to_annotations(img_fn: str, out_dir: str) -> None:
+def image_to_annotations(img_fn: str, out_dir: str, request_timeout: Optional[float] = None) -> None:
     """
     Given the RGB image located at img_fn, runs detection, segmentation, and pose estimation for drawn character within it.
     Crops the image and saves texture, mask, and character config files necessary for animation. Writes to out_dir.
@@ -22,6 +23,7 @@ def image_to_annotations(img_fn: str, out_dir: str) -> None:
     Params:
         img_fn: path to RGB image
         out_dir: directory where outputs will be saved
+        request_timeout: optional timeout, in seconds, for TorchServe calls
     """
 
     # create output directory
@@ -48,7 +50,12 @@ def image_to_annotations(img_fn: str, out_dir: str) -> None:
     # convert to bytes and send to torchserve
     img_b = cv2.imencode('.png', img)[1].tobytes()
     request_data = {'data': img_b}
-    resp = requests.post("http://localhost:8080/predictions/drawn_humanoid_detector", files=request_data, verify=False)
+    resp = requests.post(
+        "http://localhost:8080/predictions/drawn_humanoid_detector",
+        files=request_data,
+        verify=False,
+        timeout=request_timeout,
+    )
     if resp is None or resp.status_code >= 300:
         raise Exception(f"Failed to get bounding box, please check if the 'docker_torchserve' is running and healthy, resp: {resp}")
 
@@ -92,7 +99,12 @@ def image_to_annotations(img_fn: str, out_dir: str) -> None:
 
     # send cropped image to pose estimator
     data_file = {'data': cv2.imencode('.png', cropped)[1].tobytes()}
-    resp = requests.post("http://localhost:8080/predictions/drawn_humanoid_pose_estimator", files=data_file, verify=False)
+    resp = requests.post(
+        "http://localhost:8080/predictions/drawn_humanoid_pose_estimator",
+        files=data_file,
+        verify=False,
+        timeout=request_timeout,
+    )
     if resp is None or resp.status_code >= 300:
         raise Exception(f"Failed to get skeletons, please check if the 'docker_torchserve' is running and healthy, resp: {resp}")
 

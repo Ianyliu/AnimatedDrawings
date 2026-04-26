@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 import cv2
 import numpy as np
@@ -6,10 +7,11 @@ import pytest
 import yaml
 
 from animated_drawings.model.bvh import BVH
-from animated_drawings.video_pose import PoseFrame, PoseSequence, PoseToBvhConverter
+from animated_drawings.video_pose import PoseFrame, PoseSequence, PoseToBvhConverter, PoseVideoError
 from animated_drawings.video_pose.constants import MEDIAPIPE_REQUIRED_LANDMARKS
 from animated_drawings.video_pose.types import VideoDurationError
-from animated_drawings.video_pose.video import _select_metadata_fps, validate_video_duration
+from animated_drawings.video_pose.video import _select_metadata_fps, transcode_to_browser_mp4, validate_video_duration
+import animated_drawings.video_pose.video as video_helpers
 
 
 def test_pose_sequence_to_bvh_round_trip(tmp_path: Path):
@@ -63,6 +65,30 @@ def test_unreliable_webcam_fps_is_derived_from_duration():
     )
 
     assert fps == pytest.approx(29.75, abs=0.01)
+
+
+def test_strict_browser_transcode_requires_ffmpeg(tmp_path: Path, monkeypatch):
+    video_path = tmp_path / "input.mp4"
+    video_path.write_bytes(b"mp4")
+    monkeypatch.setattr(video_helpers.shutil, "which", lambda name: None)
+
+    with pytest.raises(PoseVideoError, match="ffmpeg is required"):
+        transcode_to_browser_mp4(video_path, strict=True)
+
+
+def test_strict_browser_transcode_surfaces_timeout(tmp_path: Path, monkeypatch):
+    video_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+    video_path.write_bytes(b"mp4")
+    monkeypatch.setattr(video_helpers.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+    def fake_run(command, capture_output, text, timeout):
+        raise subprocess.TimeoutExpired(command, timeout=timeout)
+
+    monkeypatch.setattr(video_helpers.subprocess, "run", fake_run)
+
+    with pytest.raises(PoseVideoError, match="timed out"):
+        transcode_to_browser_mp4(video_path, output_path, strict=True, timeout=1.0)
 
 
 def _pose_frame(offset: float) -> PoseFrame:

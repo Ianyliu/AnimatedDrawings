@@ -19,7 +19,7 @@ def parse_args():
 def main() -> None:
     args = parse_args()
     app = create_app()
-    app.run(host=args.host, port=args.port, debug=False, threaded=False)
+    app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
