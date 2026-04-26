@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol
+from typing import Dict, List, Optional, Protocol, Tuple
 
 
 class PoseVideoError(RuntimeError):
@@ -14,6 +14,27 @@ class PoseVideoError(RuntimeError):
 
 class VideoDurationError(PoseVideoError, ValueError):
     """Raised when a video exceeds the configured duration limit."""
+
+
+@dataclass
+class PoseQualityReport:
+    warnings: List[str]
+    metrics: Dict[str, float]
+
+    def to_dict(self) -> dict:
+        return {
+            "warnings": list(self.warnings),
+            "metrics": {name: float(value) for name, value in self.metrics.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict]) -> "PoseQualityReport":
+        if not data:
+            return cls(warnings=[], metrics={})
+        return cls(
+            warnings=[str(warning) for warning in data.get("warnings", [])],
+            metrics={name: float(value) for name, value in (data.get("metrics") or {}).items()},
+        )
 
 
 @dataclass
@@ -42,6 +63,7 @@ class PoseSequence:
     height: int
     landmark_names: List[str]
     frames: List[PoseFrame]
+    quality_report: Optional[PoseQualityReport] = None
 
     @property
     def frame_count(self) -> int:
@@ -56,13 +78,16 @@ class PoseSequence:
         return self.frame_count * self.frame_time
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "fps": self.fps,
             "width": self.width,
             "height": self.height,
             "landmark_names": self.landmark_names,
             "frames": [frame.to_dict() for frame in self.frames],
         }
+        if self.quality_report is not None:
+            payload["quality_report"] = self.quality_report.to_dict()
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict) -> "PoseSequence":
@@ -72,6 +97,9 @@ class PoseSequence:
             height=int(data["height"]),
             landmark_names=list(data["landmark_names"]),
             frames=[PoseFrame.from_dict(frame) for frame in data["frames"]],
+            quality_report=PoseQualityReport.from_dict(data.get("quality_report"))
+            if data.get("quality_report") is not None
+            else None,
         )
 
     def write_json(self, output_path: Path) -> None:
@@ -91,6 +119,7 @@ class MotionBuildResult:
     overlay_video_path: Optional[Path]
     bvh_path: Path
     motion_config_path: Path
+    quality_report: Optional[PoseQualityReport] = None
 
 
 class PoseEstimator(Protocol):
@@ -99,5 +128,5 @@ class PoseEstimator(Protocol):
 
 
 class PosePostprocessor(Protocol):
-    def process(self, sequence: PoseSequence) -> PoseSequence:
+    def process(self, sequence: PoseSequence) -> Tuple[PoseSequence, PoseQualityReport]:
         """Refine or smooth a pose sequence."""

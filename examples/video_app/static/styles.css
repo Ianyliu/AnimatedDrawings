@@ -4,32 +4,119 @@
 
 html {
   min-width: 0;
+  scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
 }
 
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-muted: #eef2f6;
-  --border: #d6dde5;
-  --text: #20242a;
-  --muted: #5f6b78;
-  --accent: #216e63;
-  --accent-dark: #17564d;
-  --accent-soft: #e3f2ee;
-  --blue: #265db8;
-  --blue-soft: #e8effb;
+  --bg: #f4f5f7;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-strong: #ffffff;
+  --surface-muted: #eef1f5;
+  --border: rgba(36, 45, 58, 0.14);
+  --border-strong: rgba(36, 45, 58, 0.22);
+  --text: #171a20;
+  --muted: #66717f;
+  --accent: #0f766e;
+  --accent-dark: #0a5f58;
+  --accent-soft: #dff4ef;
+  --blue: #275db5;
+  --blue-soft: #e8eefb;
   --warn: #8a5b10;
+  --warn-soft: #fff4da;
   --error: #a33131;
+  --error-soft: #fae7e7;
+  --shadow: 0 20px 55px rgba(23, 26, 32, 0.12);
   --radius: 8px;
 }
 
 body {
   margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
-  background: var(--bg);
+  background:
+    linear-gradient(180deg, #fbfcfd 0%, #f4f5f7 44%, #eceff3 100%);
   overflow-x: hidden;
+}
+
+html.openingActive,
+html.openingActive body {
+  overflow: hidden;
+}
+
+.openingScreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #ffffff;
+  background:
+    linear-gradient(110deg, rgba(66, 215, 194, 0.18), transparent 36%, rgba(255, 214, 110, 0.16) 68%, transparent),
+    linear-gradient(140deg, #080c12 0%, #172334 46%, #f4f7f8 100%);
+  transition: opacity 520ms ease, transform 520ms ease, visibility 520ms ease;
+}
+
+.openingScreen[hidden] {
+  display: none;
+}
+
+.openingScreen.openingDone {
+  opacity: 0;
+  transform: scale(1.025);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#openingCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.openingCopy {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  justify-self: start;
+  gap: 12px;
+  width: min(48vw, 620px);
+  margin-left: clamp(24px, 11vw, 170px);
+  padding: 0;
+  text-align: left;
+  pointer-events: none;
+}
+
+.openingCopy .eyebrow {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.openingCopy h2 {
+  max-width: 10ch;
+  color: #ffffff;
+  font-size: clamp(34px, 7vw, 86px);
+  line-height: 0.98;
+  font-weight: 760;
+  text-wrap: balance;
+  text-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+}
+
+.skipOpening {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 3;
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  backdrop-filter: blur(18px);
+}
+
+.skipOpening:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.24);
 }
 
 button,
@@ -44,26 +131,45 @@ button,
 .exportLinks a {
   min-height: 44px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 10px 14px;
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.86);
   color: var(--text);
   cursor: pointer;
   line-height: 1.2;
   text-decoration: none;
   touch-action: manipulation;
   overflow-wrap: anywhere;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+button:not(:disabled):hover,
+.fileButton:hover,
+.secondaryLink:hover,
+.exportLinks a:hover {
+  border-color: var(--border-strong);
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(23, 26, 32, 0.08);
+  transform: translateY(-1px);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(39, 93, 181, 0.24);
+  outline-offset: 2px;
 }
 
 button:disabled {
-  color: #8995a1;
+  color: #8f9aa6;
   cursor: default;
-  opacity: 0.7;
+  opacity: 0.65;
 }
 
 .primaryButton {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: rgba(15, 118, 110, 0.85);
+  background: #0f766e;
   color: #ffffff;
 }
 
@@ -79,17 +185,19 @@ main {
 .intro {
   min-height: 92vh;
   display: grid;
-  grid-template-columns: minmax(320px, 560px) minmax(280px, 480px);
-  gap: 40px;
+  grid-template-columns: minmax(320px, 590px) minmax(300px, 500px);
+  gap: 48px;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px 36px;
-  background: #f8fafb;
+  padding: 58px 28px 44px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(237, 242, 247, 0.72)),
+    linear-gradient(180deg, #ffffff, #eef2f6);
 }
 
 .introCopy {
   display: grid;
-  gap: 18px;
+  gap: 20px;
   min-width: 0;
 }
 
@@ -97,7 +205,7 @@ main {
   margin: 0;
   color: var(--accent);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 760;
   text-transform: uppercase;
   letter-spacing: 0;
 }
@@ -110,29 +218,32 @@ p {
 }
 
 h1 {
-  max-width: 11ch;
+  max-width: 12ch;
   font-size: 56px;
-  line-height: 1.02;
+  line-height: 1.04;
   letter-spacing: 0;
+  font-weight: 760;
 }
 
 h2 {
   font-size: 22px;
   line-height: 1.2;
   letter-spacing: 0;
+  font-weight: 720;
 }
 
 h3 {
   font-size: 16px;
   line-height: 1.2;
   letter-spacing: 0;
+  font-weight: 720;
 }
 
 .introText {
-  max-width: 62ch;
+  max-width: 64ch;
   color: var(--muted);
   font-size: 17px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .heroActions,
@@ -166,29 +277,136 @@ h3 {
   min-width: 0;
 }
 
-.introMedia img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  border: 1px solid var(--border);
+.conversionStage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 430px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: var(--radius);
-  background: var(--surface-muted);
-  max-height: 480px;
+  padding: 18px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(224, 232, 242, 0.62)),
+    linear-gradient(45deg, rgba(15, 118, 110, 0.09), rgba(39, 93, 181, 0.08));
+  box-shadow: var(--shadow);
 }
 
-.introMedia figcaption {
-  margin-top: 10px;
+.conversionPanel {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  aspect-ratio: 1 / 1;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(239, 244, 247, 0.72));
+}
+
+.conversionPanel::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: var(--radius);
+  pointer-events: none;
+}
+
+.glassInput {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(207, 225, 231, 0.56)),
+    linear-gradient(45deg, rgba(15, 118, 110, 0.16), rgba(39, 93, 181, 0.12));
+}
+
+.glassInput #glassPoseCanvas {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.outputPanel {
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.92), rgba(246, 237, 217, 0.58)),
+    linear-gradient(45deg, rgba(250, 194, 86, 0.12), rgba(15, 118, 110, 0.08));
+}
+
+.outputPanel img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: min(78%, 250px);
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 20px 48px rgba(23, 26, 32, 0.14);
+}
+
+.stageLabel {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: rgba(23, 26, 32, 0.78);
+  background: rgba(255, 255, 255, 0.64);
+  font-size: 11px;
+  font-weight: 720;
+  backdrop-filter: blur(14px);
+}
+
+.conversionArrow {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+}
+
+.conversionArrow span {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(15, 118, 110, 0.28), rgba(15, 118, 110, 0.94));
+  box-shadow: 0 0 18px rgba(15, 118, 110, 0.26);
+}
+
+.conversionArrow span::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  border-top: 2px solid rgba(15, 118, 110, 0.94);
+  border-right: 2px solid rgba(15, 118, 110, 0.94);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.conversionStage figcaption {
+  grid-column: 1 / -1;
+  position: relative;
+  z-index: 3;
+  margin-top: 0;
   color: var(--muted);
   font-size: 13px;
+  text-align: center;
 }
 
 .creator {
   display: grid;
-  grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(340px, 460px) minmax(0, 1fr);
+  gap: 20px;
   min-height: 100vh;
-  padding: 18px;
+  padding: 20px;
   min-width: 0;
 }
 
@@ -208,11 +426,14 @@ h3 {
 .workflowCard,
 .viewer,
 .transport,
-.sampleStrip {
+.sampleStrip,
+.diagnosticsPanel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  box-shadow: 0 1px 1px rgba(23, 26, 32, 0.03);
   padding: 14px;
+  backdrop-filter: blur(18px);
 }
 
 .workflowHeader {
@@ -221,54 +442,61 @@ h3 {
 }
 
 .steps {
+  position: sticky;
+  top: 12px;
+  z-index: 3;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   margin: 0;
-  padding: 0;
+  padding: 8px;
   list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(18px);
 }
 
 .steps li {
   min-height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   display: grid;
   place-items: center;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 730;
   text-align: center;
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.62);
   white-space: nowrap;
 }
 
 .steps li.ready,
 .statePill.ready {
-  border-color: var(--blue);
+  border-color: rgba(39, 93, 181, 0.26);
   color: var(--blue);
   background: var(--blue-soft);
 }
 
 .steps li.processing,
 .statePill.processing {
-  border-color: var(--warn);
+  border-color: rgba(138, 91, 16, 0.28);
   color: var(--warn);
-  background: #fff5df;
+  background: var(--warn-soft);
 }
 
 .steps li.complete,
 .statePill.complete {
-  border-color: var(--accent);
+  border-color: rgba(15, 118, 110, 0.26);
   color: var(--accent-dark);
   background: var(--accent-soft);
 }
 
 .steps li.failed,
 .statePill.failed {
-  border-color: var(--error);
+  border-color: rgba(163, 49, 49, 0.28);
   color: var(--error);
-  background: #fae8e8;
+  background: var(--error-soft);
 }
 
 .sampleStrip {
@@ -286,15 +514,30 @@ h3 {
 }
 
 .sampleButton span {
-  font-weight: 700;
+  font-weight: 730;
 }
 
 .sampleButton small,
 .hint,
-.fileName {
+.fileName,
+.diagnosticsPanel,
+.qualityWarnings {
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
+}
+
+.diagnosticsPanel,
+.qualityWarnings {
+  display: grid;
+  gap: 7px;
+  border-color: rgba(138, 91, 16, 0.22);
+  background: rgba(255, 246, 222, 0.78);
+}
+
+.diagnosticsPanel[hidden],
+.qualityWarnings[hidden] {
+  display: none;
 }
 
 .workflowCard {
@@ -304,8 +547,8 @@ h3 {
 }
 
 .workflowCard.primaryStep {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(33, 110, 99, 0.08);
+  border-color: rgba(15, 118, 110, 0.45);
+  box-shadow: 0 12px 34px rgba(15, 118, 110, 0.10);
 }
 
 .cardHeader {
@@ -323,7 +566,7 @@ h3 {
   color: var(--muted);
   background: var(--surface-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 730;
   text-align: center;
 }
 
@@ -341,7 +584,7 @@ label {
   gap: 6px;
   color: var(--text);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 720;
   min-width: 0;
 }
 
@@ -350,6 +593,14 @@ input[type="file"] {
   width: 100%;
   min-height: 44px;
   min-width: 0;
+}
+
+select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text);
 }
 
 .uploadArea {
@@ -381,7 +632,7 @@ img {
   max-width: 100%;
   min-width: 0;
   background: var(--surface-muted);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 #recordPreview {
@@ -390,7 +641,11 @@ img {
 }
 
 .previewPanel {
+  position: sticky;
+  top: 20px;
   grid-template-columns: 1fr 1fr;
+  max-height: calc(100vh - 40px);
+  overflow: auto;
 }
 
 .viewer {
@@ -402,7 +657,7 @@ img {
 .viewer video,
 .viewer img {
   aspect-ratio: 1 / 1;
-  max-height: 520px;
+  max-height: 420px;
   object-fit: contain;
 }
 
@@ -412,7 +667,7 @@ img {
 
 .animationViewer video {
   aspect-ratio: 16 / 9;
-  max-height: 560px;
+  max-height: 430px;
 }
 
 .transport {
@@ -427,6 +682,7 @@ img {
 #timeline {
   width: 100%;
   min-width: 0;
+  accent-color: var(--accent);
 }
 
 #status {
@@ -438,10 +694,25 @@ img {
 #jobProgress {
   width: 100%;
   height: 10px;
+  accent-color: var(--accent);
 }
 
 .exportLinks a[hidden] {
   display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 @media (max-width: 980px) {
@@ -457,9 +728,20 @@ img {
     justify-content: stretch;
   }
 
+  .previewPanel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
   h1 {
     max-width: 14ch;
     font-size: 42px;
+  }
+
+  .conversionStage {
+    max-width: 620px;
+    margin-inline: auto;
   }
 }
 
@@ -484,9 +766,43 @@ img {
     line-height: 1.45;
   }
 
-  .introMedia img {
-    aspect-ratio: 4 / 3;
-    max-height: 260px;
+  .openingCopy h2 {
+    font-size: 38px;
+  }
+
+  .openingCopy {
+    justify-self: center;
+    width: auto;
+    margin-left: 0;
+    padding: 0 24px;
+    text-align: center;
+  }
+
+  .skipOpening {
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .conversionStage {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .conversionPanel {
+    width: min(100%, 260px);
+    justify-self: center;
+  }
+
+  .conversionArrow {
+    width: 100%;
+    height: 34px;
+    transform: rotate(90deg);
+  }
+
+  .outputPanel img {
+    width: min(76%, 220px);
   }
 
   .creator {
@@ -498,15 +814,19 @@ img {
   .workflowCard,
   .viewer,
   .transport,
-  .sampleStrip {
+  .sampleStrip,
+  .diagnosticsPanel {
     padding: 12px;
   }
 
   .steps {
+    position: static;
     display: flex;
     gap: 8px;
     margin-right: -14px;
     padding: 0 14px 4px 0;
+    border: 0;
+    background: transparent;
     overflow-x: auto;
     scroll-snap-type: x proximity;
     -webkit-overflow-scrolling: touch;

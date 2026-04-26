@@ -7,13 +7,21 @@
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
+    <section id="openingScreen" class="openingScreen" aria-label="Opening animation">
+      <canvas id="openingCanvas" aria-hidden="true"></canvas>
+      <div class="openingCopy">
+        <p class="eyebrow">Animated Drawings</p>
+        <h2>Motion becomes character.</h2>
+      </div>
+      <button id="skipOpening" class="skipOpening" type="button">Skip</button>
+    </section>
     <main>
       <section class="intro" aria-labelledby="introTitle">
         <div class="introCopy">
           <p class="eyebrow">Animated Drawings</p>
-          <h1 id="introTitle">Turn a character drawing into a motion-driven animation.</h1>
+          <h1 id="introTitle">Turn video motion into an animated drawing.</h1>
           <p class="introText">
-            Pick a sample, use a bundled character, or upload your own motion and drawing. The app estimates joints, renders the animation, and gives you export links when it is done.
+            Record or upload motion, pair it with a bundled or custom character, and render the result locally. The app estimates joints, builds animation data, and gives you export links when it is done.
           </p>
           <div class="heroActions">
             <button id="startCreating" class="primaryButton">Start creating</button>
@@ -25,9 +33,19 @@
             <li>This local build checks file structure but does not run antivirus scanning.</li>
           </ul>
         </div>
-        <figure class="introMedia">
-          <img src="/demo-media/garlic.gif" alt="Example animated drawing">
-          <figcaption>Example output from a bundled character workflow</figcaption>
+        <figure class="introMedia conversionStage">
+          <div class="conversionPanel glassInput">
+            <canvas id="glassPoseCanvas" aria-hidden="true"></canvas>
+            <span class="stageLabel">Pose</span>
+          </div>
+          <div class="conversionArrow" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="conversionPanel outputPanel">
+            <img src="/demo-media/garlic.gif" alt="Example animated drawing">
+            <span class="stageLabel">Animated drawing</span>
+          </div>
+          <figcaption>Turn motion into a dancing character.</figcaption>
         </figure>
       </section>
 
@@ -57,6 +75,8 @@
             </button>
           </section>
 
+          <section id="diagnosticsPanel" class="diagnosticsPanel" aria-label="Setup diagnostics" hidden></section>
+
           <section id="motionCard" class="workflowCard">
             <div class="cardHeader">
               <h3>Motion</h3>
@@ -69,6 +89,10 @@
               </label>
               <button id="useMotion" type="button">Use Motion</button>
             </div>
+            <label id="poseEstimatorWrap" hidden>
+              Pose estimator
+              <select id="poseEstimator"></select>
+            </label>
             <div class="uploadArea">
               <div>
                 <strong>Record or upload video</strong>
@@ -124,6 +148,7 @@
               <span id="previewState" class="statePill">Empty</span>
             </div>
             <p class="hint">Review the source motion and drawing joints before rendering.</p>
+            <div id="qualityWarnings" class="qualityWarnings" hidden></div>
           </section>
 
           <section id="renderCard" class="workflowCard actions">
@@ -174,7 +199,8 @@
     <script>
       window.APP_MAX_SECONDS = {{ max_seconds|tojson }};
       window.APP_SESSION_ID = {{ session_id|tojson }};
+      window.APP_CSRF_TOKEN = {{ csrf_token|tojson }};
     </script>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
 </html>

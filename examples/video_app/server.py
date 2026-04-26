@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -11,13 +12,15 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+import hashlib
+import hmac
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import cv2
 import requests
 import yaml
-from flask import Flask, abort, jsonify, make_response, render_template, request, send_from_directory
+from flask import Flask, abort, current_app, jsonify, make_response, render_template, request, send_from_directory
 from PIL import Image, UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
@@ -25,11 +28,17 @@ from werkzeug.utils import secure_filename
 from animated_drawings.video_pose import (
     PoseVideoError,
     VideoDurationError,
+    available_pose_estimators,
     build_motion_from_video,
     write_motion_config_for_bvh,
 )
 from animated_drawings.video_pose.constants import DEFAULT_MAX_SECONDS
 from animated_drawings.video_pose.video import transcode_to_browser_mp4, validate_video_duration
+
+try:
+    from examples.video_app.diagnostics import diagnostics_payload
+except ImportError:  # pragma: no cover - used when launched as examples/video_app.py
+    from video_app.diagnostics import diagnostics_payload
 
 
 logger = logging.getLogger(__name__)
@@ -257,6 +266,13 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
     app.config["VIDEO_APP_SESSION_JOB_LIMIT"] = _env_int("VIDEO_APP_SESSION_JOB_LIMIT", 6)
     app.config["VIDEO_APP_IP_JOB_LIMIT"] = _env_int("VIDEO_APP_IP_JOB_LIMIT", 20)
     app.config["VIDEO_APP_MAX_PENDING_JOBS"] = _env_int("VIDEO_APP_MAX_PENDING_JOBS", 4)
+    app.config["VIDEO_APP_POSE_ESTIMATOR"] = os.environ.get("VIDEO_APP_POSE_ESTIMATOR", "mediapipe")
+    app.config["VIDEO_APP_RANDOM_FOREST_MODEL"] = os.environ.get("VIDEO_APP_RANDOM_FOREST_MODEL", "")
+    app.config["VIDEO_APP_CATBOOST_MODEL"] = os.environ.get("VIDEO_APP_CATBOOST_MODEL", "")
+    app.config["VIDEO_APP_TRUST_PROXY"] = _env_bool("VIDEO_APP_TRUST_PROXY", False)
+    app.config["VIDEO_APP_SECURE_COOKIE"] = _env_bool("VIDEO_APP_SECURE_COOKIE", False)
+    app.config["VIDEO_APP_REQUIRE_CSRF"] = _env_bool("VIDEO_APP_REQUIRE_CSRF", True)
+    app.secret_key = os.environ.get("VIDEO_APP_SECRET_KEY") or secrets.token_hex(32)
     app.config["_OUTPUT_CLEANUP_LAST_RUN"] = 0.0
     app.config["JOB_MANAGER"] = job_manager or JobManager(max_workers=_env_int("VIDEO_APP_WORKERS", 1))
     app.config["RATE_LIMITER"] = LocalRateLimiter()
@@ -265,19 +281,22 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
     def index():
         _maybe_cleanup_old_sessions(app)
         session_id = _safe_session_id(request.cookies.get(SESSION_COOKIE_NAME) or uuid.uuid4().hex)
+        csrf_token = _csrf_token(app, session_id)
         response = make_response(
             render_template(
                 "index.html",
                 max_seconds=app.config["VIDEO_APP_MAX_SECONDS"],
                 session_id=session_id,
+                csrf_token=csrf_token,
             )
         )
         response.set_cookie(
             SESSION_COOKIE_NAME,
             session_id,
             max_age=60 * 60 * 24,
-            httponly=False,
+            httponly=True,
             samesite="Lax",
+            secure=bool(app.config["VIDEO_APP_SECURE_COOKIE"]),
         )
         return response
 
@@ -314,7 +333,19 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
                 "samples": _sample_assets(),
                 "limits": _limits_payload(app),
                 "demo": {"animation_url": "/demo-media/garlic.gif"},
+                "pose_estimators": _pose_estimators_payload(app),
+                "default_pose_estimator": app.config["VIDEO_APP_POSE_ESTIMATOR"],
             }
+        )
+
+    @app.route("/api/diagnostics")
+    def diagnostics():
+        return jsonify(
+            diagnostics_payload(
+                {
+                    "torchserve_timeout": min(2.0, float(app.config["VIDEO_APP_TORCHSERVE_TIMEOUT"])),
+                }
+            )
         )
 
     @app.route("/demo-media/<filename>")
@@ -342,15 +373,19 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
         job = app.config["JOB_MANAGER"].get(job_id)
         if job is None:
             return _json_error("job_not_found", "The requested job was not found.", 404)
+        if job.session_id != _current_session_id():
+            return _json_error("job_not_found", "The requested job was not found.", 404)
         return jsonify({"job": job.to_dict()})
 
     @app.route("/api/motion/video", methods=["POST"])
     def motion_video():
         try:
+            _require_csrf(app)
             session_id, session_dir = _session_from_request(app)
             uploaded = _require_upload("video")
             suffix = _validate_upload(uploaded, VIDEO_EXTENSIONS, "video")
             max_seconds = _parse_max_seconds(request.form.get("max_seconds"), app)
+            pose_estimator = _parse_pose_estimator(request.form.get("pose_estimator"), app)
             job_id = app.config["JOB_MANAGER"].new_job_id()
             job_dir = _job_output_dir(session_dir, "motion_video", job_id)
             video_path = _save_upload(uploaded, job_dir / f"input_video{suffix}")
@@ -359,15 +394,23 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
 
             def work(update: ProgressCallback) -> dict[str, Any]:
                 update(15, "Estimating pose...")
-                result = build_motion_from_video(video_path, job_dir, max_seconds=max_seconds)
+                result = build_motion_from_video(
+                    video_path,
+                    job_dir,
+                    max_seconds=max_seconds,
+                    estimator_name=pose_estimator,
+                    estimator_config=_pose_estimator_config(app),
+                )
                 update(85, "Preparing motion outputs...")
                 return {
                     "session_id": session_id,
+                    "pose_estimator": pose_estimator,
                     "motion_cfg": str(result.motion_config_path),
                     "retarget_cfg": str(MEDIAPIPE_RETARGET_CFG),
                     "bvh_url": _output_url(session_id, result.bvh_path, session_dir),
                     "overlay_url": _output_url(session_id, result.overlay_video_path, session_dir),
                     "pose_sequence_url": _output_url(session_id, result.pose_sequence_path, session_dir),
+                    "quality_report": result.quality_report.to_dict() if result.quality_report else None,
                 }
 
             job = app.config["JOB_MANAGER"].submit(
@@ -384,6 +427,7 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
     @app.route("/api/motion/bvh", methods=["POST"])
     def motion_bvh():
         try:
+            _require_csrf(app)
             session_id, session_dir = _session_from_request(app)
             uploaded = _require_upload("bvh")
             _validate_upload(uploaded, BVH_EXTENSIONS, "BVH")
@@ -418,6 +462,7 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
     @app.route("/api/drawing", methods=["POST"])
     def drawing():
         try:
+            _require_csrf(app)
             session_id, session_dir = _session_from_request(app)
             character_cfg = request.form.get("character_cfg")
             uploaded = request.files.get("drawing")
@@ -474,6 +519,7 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
     @app.route("/api/render", methods=["POST"])
     def render_animation():
         try:
+            _require_csrf(app)
             session_id, session_dir = _session_from_request(app)
             payload = request.get_json(silent=True) or {}
             character_cfg = _resolve_character_cfg_for_render(_required_payload(payload, "character_cfg"), app)
@@ -521,6 +567,8 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
     @app.route("/outputs/<session_id>/<path:filename>")
     def outputs(session_id: str, filename: str):
         safe_session_id = _safe_session_id(session_id)
+        if safe_session_id != _current_session_id():
+            return _json_error("output_not_found", "The requested output was not found.", 404)
         session_dir = (app.config["OUTPUT_ROOT"] / safe_session_id).resolve()
         _ensure_under(session_dir, app.config["OUTPUT_ROOT"])
         response = send_from_directory(session_dir, filename)
@@ -544,6 +592,13 @@ def _env_float(name: str, default: float) -> float:
         return float(os.environ.get(name, default))
     except (TypeError, ValueError):
         return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _sample_assets() -> list[dict[str, Any]]:
@@ -589,6 +644,30 @@ def _limits_payload(app: Flask) -> dict[str, Any]:
     }
 
 
+def _pose_estimator_config(app: Flask) -> dict[str, str]:
+    return {
+        "random_forest_model": str(app.config.get("VIDEO_APP_RANDOM_FOREST_MODEL") or ""),
+        "catboost_model": str(app.config.get("VIDEO_APP_CATBOOST_MODEL") or ""),
+    }
+
+
+def _pose_estimators_payload(app: Flask) -> list[dict[str, Any]]:
+    return available_pose_estimators(_pose_estimator_config(app))
+
+
+def _parse_pose_estimator(raw_value: Optional[str], app: Flask) -> str:
+    estimator = (raw_value or app.config["VIDEO_APP_POSE_ESTIMATOR"] or "mediapipe").strip().lower()
+    known = {item["id"]: item for item in _pose_estimators_payload(app)}
+    if estimator not in known:
+        raise AppError("invalid_pose_estimator", f"Unknown pose estimator: {estimator}.")
+    if estimator != "mediapipe" and not known[estimator]["available"]:
+        raise AppError(
+            "pose_estimator_unavailable",
+            f"{known[estimator]['name']} is not configured or unavailable. Check diagnostics.",
+        )
+    return estimator
+
+
 def _character_preview_url(character_id: str, filename: str) -> str:
     return f"/example-assets/characters/{character_id}/{filename}"
 
@@ -619,22 +698,56 @@ def _guard_heavy_job(app: Flask, session_id: str) -> None:
 
 def _client_ip() -> str:
     forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if forwarded_for:
+    if current_app.config.get("VIDEO_APP_TRUST_PROXY") and forwarded_for:
         return forwarded_for.split(",", 1)[0].strip() or "unknown"
     return request.remote_addr or "local"
 
 
 def _session_from_request(app: Flask) -> tuple[str, Path]:
     _maybe_cleanup_old_sessions(app)
-    session_id = request.form.get("session_id") or request.cookies.get(SESSION_COOKIE_NAME)
-    if request.is_json:
-        payload = request.get_json(silent=True) or {}
-        session_id = payload.get("session_id", session_id)
+    session_id = _request_session_id()
     safe_session_id = _safe_session_id(session_id or uuid.uuid4().hex)
     session_dir = (app.config["OUTPUT_ROOT"] / safe_session_id).resolve()
     _ensure_under(session_dir, app.config["OUTPUT_ROOT"])
     session_dir.mkdir(exist_ok=True, parents=True)
     return safe_session_id, session_dir
+
+
+def _request_session_id() -> Optional[str]:
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_id:
+        return session_id
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        session_id = payload.get("session_id")
+    if not session_id:
+        session_id = request.form.get("session_id") or request.args.get("session_id")
+    return session_id
+
+
+def _current_session_id() -> str:
+    session_id = _request_session_id()
+    return _safe_session_id(session_id) if session_id else ""
+
+
+def _csrf_token(app: Flask, session_id: str) -> str:
+    secret = str(app.secret_key or "").encode("utf-8")
+    return hmac.new(secret, _safe_session_id(session_id).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _require_csrf(app: Flask) -> None:
+    if not app.config["VIDEO_APP_REQUIRE_CSRF"]:
+        return
+    session_id = _request_session_id()
+    if not session_id:
+        raise AppError("csrf_failed", "Missing session cookie.", 403)
+    expected = _csrf_token(app, session_id)
+    token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+    if request.is_json and not token:
+        payload = request.get_json(silent=True) or {}
+        token = payload.get("csrf_token")
+    if not token or not hmac.compare_digest(str(token), expected):
+        raise AppError("csrf_failed", "Request verification failed. Refresh the page and try again.", 403)
 
 
 def _safe_session_id(session_id: str) -> str:

@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from io import BytesIO
 from pathlib import Path
@@ -20,6 +21,17 @@ def _url_path(url: str) -> str:
 
 def _test_app(tmp_path: Path):
     return server.create_app(output_root=tmp_path, job_manager=server.JobManager(run_inline=True))
+
+
+def _session_context(client) -> tuple[str, dict[str, str]]:
+    response = client.get("/")
+    assert response.status_code == 200
+    text = response.data.decode("utf-8")
+    session = re.search(r"window\.APP_SESSION_ID = \"([^\"]+)\"", text)
+    csrf = re.search(r"window\.APP_CSRF_TOKEN = \"([^\"]+)\"", text)
+    assert session is not None
+    assert csrf is not None
+    return session.group(1), {"X-CSRF-Token": csrf.group(1)}
 
 
 def _completed_job_result(client, payload: dict) -> dict:
@@ -47,7 +59,7 @@ def _png_bytes(width: int = 16, height: int = 16) -> BytesIO:
     return data
 
 
-def _fake_motion_result(video_path, out_dir, max_seconds):
+def _fake_motion_result(video_path, out_dir, max_seconds, **kwargs):
     pose = out_dir / "pose_sequence.json"
     overlay = out_dir / "pose_overlay.mp4"
     bvh = out_dir / "motion.bvh"
@@ -73,6 +85,7 @@ def test_video_app_assets_endpoint(tmp_path: Path):
     assert payload["limits"]["max_seconds"] == 10
     assert payload["limits"]["accepted_extensions"]["video"]
     assert payload["demo"]["animation_url"] == "/demo-media/garlic.gif"
+    assert payload["pose_estimators"][0]["id"] == "mediapipe"
 
 
 def test_video_app_index_issues_session_cookie(tmp_path: Path):
@@ -83,7 +96,9 @@ def test_video_app_index_issues_session_cookie(tmp_path: Path):
 
     assert response.status_code == 200
     assert server.SESSION_COOKIE_NAME in response.headers["Set-Cookie"]
+    assert "HttpOnly" in response.headers["Set-Cookie"]
     assert b"window.APP_SESSION_ID" in response.data
+    assert b"window.APP_CSRF_TOKEN" in response.data
     assert b"Start creating" in response.data
     assert b"Files are processed locally" in response.data
     assert b'id="workflow"' in response.data
@@ -101,12 +116,40 @@ def test_demo_media_route_is_allowlisted(tmp_path: Path):
     assert missing.status_code == 404
 
 
-def test_video_app_bundled_drawing_endpoint(tmp_path: Path):
+def test_video_app_diagnostics_endpoint(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
 
+    response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] in {"ok", "warning", "error"}
+    assert any(check["id"] == "ffmpeg" for check in payload["checks"])
+
+
+def test_video_app_post_requires_csrf(tmp_path: Path):
+    app = _test_app(tmp_path)
+    client = app.test_client()
+    _session_context(client)
+
     response = client.post(
         "/api/drawing",
+        data={"character_cfg": "examples/characters/char1/char_cfg.yaml"},
+    )
+
+    assert response.status_code == 403
+    assert response.get_json()["error"]["code"] == "csrf_failed"
+
+
+def test_video_app_bundled_drawing_endpoint(tmp_path: Path):
+    app = _test_app(tmp_path)
+    client = app.test_client()
+    _, headers = _session_context(client)
+
+    response = client.post(
+        "/api/drawing",
+        headers=headers,
         data={
             "session_id": "test-session",
             "character_cfg": "examples/characters/char1/char_cfg.yaml",
@@ -119,6 +162,46 @@ def test_video_app_bundled_drawing_endpoint(tmp_path: Path):
     assert _url_path(payload["joint_overlay_url"]).endswith("drawing_joint_overlay.png")
 
 
+def test_video_app_job_status_is_session_scoped(tmp_path: Path, monkeypatch):
+    def fake_validate_video_duration(video_path, max_seconds):
+        return SimpleNamespace(width=32, height=32, fps=30.0, duration=1.0)
+
+    monkeypatch.setattr(server, "validate_video_duration", fake_validate_video_duration)
+    monkeypatch.setattr(server, "build_motion_from_video", _fake_motion_result)
+    app = _test_app(tmp_path)
+    client = app.test_client()
+    _, headers = _session_context(client)
+    response = client.post(
+        "/api/motion/video",
+        headers=headers,
+        data={"video": (BytesIO(b"fake video"), "clip.mp4")},
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 202
+    status_url = response.get_json()["job"]["status_url"]
+
+    other_client = app.test_client()
+    _session_context(other_client)
+    other_response = other_client.get(status_url)
+
+    assert other_response.status_code == 404
+
+
+def test_video_app_output_route_is_session_scoped(tmp_path: Path):
+    app = _test_app(tmp_path)
+    client = app.test_client()
+    session_id, _ = _session_context(client)
+    session_dir = tmp_path / session_id
+    session_dir.mkdir(exist_ok=True)
+    (session_dir / "clip.mp4").write_bytes(b"mp4")
+
+    other_client = app.test_client()
+    _session_context(other_client)
+    response = other_client.get(f"/outputs/{session_id}/clip.mp4")
+
+    assert response.status_code == 404
+
+
 def test_video_app_video_motion_endpoint_returns_completed_job(tmp_path: Path, monkeypatch):
     def fake_validate_video_duration(video_path, max_seconds):
         assert video_path.name == "input_video.mp4"
@@ -129,9 +212,11 @@ def test_video_app_video_motion_endpoint_returns_completed_job(tmp_path: Path, m
     monkeypatch.setattr(server, "build_motion_from_video", _fake_motion_result)
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/video",
+        headers=headers,
         data={
             "session_id": "video-session",
             "video": (BytesIO(b"fake video"), "clip.mp4"),
@@ -142,16 +227,36 @@ def test_video_app_video_motion_endpoint_returns_completed_job(tmp_path: Path, m
     assert response.status_code == 202
     result = _completed_job_result(client, response.get_json())
     assert result["motion_cfg"].endswith("motion.yaml")
+    assert result["pose_estimator"] == "mediapipe"
+    assert "quality_report" in result
     assert "/jobs/motion_video_" in _url_path(result["overlay_url"])
     assert _url_path(result["overlay_url"]).endswith("pose_overlay.mp4")
+
+
+def test_video_app_rejects_unconfigured_pose_estimator(tmp_path: Path):
+    app = _test_app(tmp_path)
+    client = app.test_client()
+    _, headers = _session_context(client)
+
+    response = client.post(
+        "/api/motion/video",
+        headers=headers,
+        data={"pose_estimator": "random_forest", "video": (BytesIO(b"fake video"), "clip.mp4")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "pose_estimator_unavailable"
 
 
 def test_video_app_bvh_endpoint_returns_completed_job(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/bvh",
+        headers=headers,
         data={
             "session_id": "bvh-session",
             "bvh": (BytesIO(b"HIERARCHY\nMOTION\nFrames: 1\nFrame Time: 0.0333333\n"), "motion.bvh"),
@@ -174,9 +279,11 @@ def test_video_app_uploaded_drawing_endpoint_returns_completed_job(tmp_path: Pat
     monkeypatch.setattr(server, "_image_to_annotations", fake_image_to_annotations)
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/drawing",
+        headers=headers,
         data={
             "session_id": "drawing-session",
             "drawing": (_png_bytes(), "drawing.png"),
@@ -205,12 +312,14 @@ def test_video_app_render_endpoint_returns_completed_job(tmp_path: Path, monkeyp
     monkeypatch.setattr(server, "transcode_to_browser_mp4", fake_transcode)
     app = _test_app(tmp_path)
     client = app.test_client()
+    session_id, headers = _session_context(client)
 
     assets = client.get("/api/assets").get_json()
     sample = assets["samples"][0]
 
     response = client.post(
         "/api/render",
+        headers=headers,
         json={
             "session_id": "render-session",
             "character_cfg": sample["character_cfg"],
@@ -224,24 +333,26 @@ def test_video_app_render_endpoint_returns_completed_job(tmp_path: Path, monkeyp
     animation_path = _url_path(result["animation_url"])
     assert "/jobs/render_" in animation_path
     assert animation_path.endswith("animated_drawing.mp4")
-    output_rel = animation_path.split("/outputs/render-session/", 1)[1]
-    assert (tmp_path / "render-session" / output_rel).exists()
+    output_rel = animation_path.split(f"/outputs/{session_id}/", 1)[1]
+    assert (tmp_path / session_id / output_rel).exists()
 
 
 def test_video_app_failed_job_exposes_public_error(tmp_path: Path, monkeypatch):
     def fake_validate_video_duration(video_path, max_seconds):
         return SimpleNamespace(width=32, height=32, fps=30.0, duration=1.0)
 
-    def fake_build_motion_from_video(video_path, out_dir, max_seconds):
+    def fake_build_motion_from_video(video_path, out_dir, max_seconds, **kwargs):
         raise PoseVideoError("No human pose was detected in the video.")
 
     monkeypatch.setattr(server, "validate_video_duration", fake_validate_video_duration)
     monkeypatch.setattr(server, "build_motion_from_video", fake_build_motion_from_video)
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/video",
+        headers=headers,
         data={
             "session_id": "failed-session",
             "video": (BytesIO(b"fake video"), "clip.mp4"),
@@ -264,14 +375,17 @@ def test_video_app_rate_limit_returns_429(tmp_path: Path, monkeypatch):
     app = _test_app(tmp_path)
     app.config["VIDEO_APP_SESSION_JOB_LIMIT"] = 1
     client = app.test_client()
+    _, headers = _session_context(client)
 
     first = client.post(
         "/api/motion/video",
+        headers=headers,
         data={"session_id": "limited-session", "video": (BytesIO(b"fake video"), "clip.mp4")},
         content_type="multipart/form-data",
     )
     second = client.post(
         "/api/motion/video",
+        headers=headers,
         data={"session_id": "limited-session", "video": (BytesIO(b"fake video"), "clip.mp4")},
         content_type="multipart/form-data",
     )
@@ -279,6 +393,15 @@ def test_video_app_rate_limit_returns_429(tmp_path: Path, monkeypatch):
     assert first.status_code == 202
     assert second.status_code == 429
     assert second.get_json()["error"]["code"] == "rate_limited"
+
+
+def test_client_ip_trusts_forwarded_for_only_when_configured(tmp_path: Path):
+    app = _test_app(tmp_path)
+    with app.test_request_context("/", headers={"X-Forwarded-For": "203.0.113.8"}):
+        app.config["VIDEO_APP_TRUST_PROXY"] = False
+        assert server._client_ip() != "203.0.113.8"
+        app.config["VIDEO_APP_TRUST_PROXY"] = True
+        assert server._client_ip() == "203.0.113.8"
 
 
 def test_video_app_queue_guard_returns_429(tmp_path: Path, monkeypatch):
@@ -289,9 +412,11 @@ def test_video_app_queue_guard_returns_429(tmp_path: Path, monkeypatch):
     app = _test_app(tmp_path)
     app.config["VIDEO_APP_MAX_PENDING_JOBS"] = 0
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/video",
+        headers=headers,
         data={"session_id": "busy-session", "video": (BytesIO(b"fake video"), "clip.mp4")},
         content_type="multipart/form-data",
     )
@@ -303,9 +428,11 @@ def test_video_app_queue_guard_returns_429(tmp_path: Path, monkeypatch):
 def test_video_app_rejects_unsupported_upload_type(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/bvh",
+        headers=headers,
         data={
             "session_id": "bad-upload",
             "bvh": (BytesIO(b"not bvh"), "motion.txt"),
@@ -320,9 +447,11 @@ def test_video_app_rejects_unsupported_upload_type(tmp_path: Path):
 def test_video_app_rejects_malformed_bvh(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/bvh",
+        headers=headers,
         data={
             "session_id": "bad-bvh",
             "bvh": (BytesIO(b"not a bvh"), "motion.bvh"),
@@ -337,9 +466,11 @@ def test_video_app_rejects_malformed_bvh(tmp_path: Path):
 def test_video_app_rejects_image_extension_mismatch(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/drawing",
+        headers=headers,
         data={
             "session_id": "bad-image",
             "drawing": (_png_bytes(), "drawing.jpg"),
@@ -354,9 +485,11 @@ def test_video_app_rejects_image_extension_mismatch(tmp_path: Path):
 def test_video_app_rejects_unreadable_video(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/motion/video",
+        headers=headers,
         data={
             "session_id": "bad-video",
             "video": (BytesIO(b"not a video"), "clip.mp4"),
@@ -371,9 +504,11 @@ def test_video_app_rejects_unreadable_video(tmp_path: Path):
 def test_video_app_render_rejects_disallowed_path(tmp_path: Path):
     app = _test_app(tmp_path)
     client = app.test_client()
+    _, headers = _session_context(client)
 
     response = client.post(
         "/api/render",
+        headers=headers,
         json={
             "session_id": "bad-render",
             "character_cfg": "/etc/passwd",
@@ -387,13 +522,14 @@ def test_video_app_render_rejects_disallowed_path(tmp_path: Path):
 
 
 def test_output_files_are_not_cached(tmp_path: Path):
-    session_dir = tmp_path / "cache-session"
-    session_dir.mkdir()
-    (session_dir / "clip.mp4").write_bytes(b"mp4")
     app = _test_app(tmp_path)
     client = app.test_client()
+    session_id, _ = _session_context(client)
+    session_dir = tmp_path / session_id
+    session_dir.mkdir()
+    (session_dir / "clip.mp4").write_bytes(b"mp4")
 
-    response = client.get("/outputs/cache-session/clip.mp4")
+    response = client.get(f"/outputs/{session_id}/clip.mp4")
 
     assert response.status_code == 200
     assert "no-store" in response.headers["Cache-Control"]

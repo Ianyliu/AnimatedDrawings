@@ -7,10 +7,20 @@ import pytest
 import yaml
 
 from animated_drawings.model.bvh import BVH
-from animated_drawings.video_pose import PoseFrame, PoseSequence, PoseToBvhConverter, PoseVideoError
+from animated_drawings.video_pose import (
+    DefaultPosePostprocessor,
+    PoseFrame,
+    PosePostprocessConfig,
+    PoseSequence,
+    PoseToBvhConverter,
+    PoseVideoError,
+    build_motion_from_video,
+    create_pose_estimator,
+)
 from animated_drawings.video_pose.constants import MEDIAPIPE_REQUIRED_LANDMARKS
 from animated_drawings.video_pose.types import VideoDurationError
 from animated_drawings.video_pose.video import _select_metadata_fps, transcode_to_browser_mp4, validate_video_duration
+import animated_drawings.video_pose.pipeline as pipeline_helpers
 import animated_drawings.video_pose.video as video_helpers
 
 
@@ -89,6 +99,84 @@ def test_strict_browser_transcode_surfaces_timeout(tmp_path: Path, monkeypatch):
 
     with pytest.raises(PoseVideoError, match="timed out"):
         transcode_to_browser_mp4(video_path, output_path, strict=True, timeout=1.0)
+
+
+def test_build_motion_from_video_preserves_estimator_object_compatibility(tmp_path: Path, monkeypatch):
+    class FakeEstimator:
+        def estimate(self, video_path, max_seconds=10):
+            return PoseSequence(
+                fps=30.0,
+                width=640,
+                height=480,
+                landmark_names=MEDIAPIPE_REQUIRED_LANDMARKS,
+                frames=[_pose_frame(0.0), _pose_frame(0.02), _pose_frame(0.04)],
+            )
+
+    def fake_overlay(video_path, sequence, output_path, max_seconds=10, max_frames=None):
+        output_path.write_bytes(b"mp4")
+        return output_path
+
+    monkeypatch.setattr(pipeline_helpers, "write_pose_overlay", fake_overlay)
+
+    result = build_motion_from_video(tmp_path / "input.mp4", tmp_path / "out", estimator=FakeEstimator())
+
+    assert result.motion_config_path.exists()
+    assert result.quality_report is not None
+    sequence = PoseSequence.read_json(result.pose_sequence_path)
+    assert sequence.quality_report is not None
+
+
+def test_pose_estimator_registry_rejects_missing_config():
+    with pytest.raises(PoseVideoError, match="Random Forest"):
+        create_pose_estimator("random_forest", {})
+    with pytest.raises(PoseVideoError, match="Unknown pose estimator"):
+        create_pose_estimator("not-real", {})
+
+
+def test_default_postprocessor_repairs_smooths_and_warns():
+    frames = [_pose_frame(0.0), _pose_frame(0.03), _pose_frame(0.06)]
+    frames[1].landmarks["LEFT_WRIST"][3] = 0.01
+    frames[1].landmarks["LEFT_SHOULDER"], frames[1].landmarks["RIGHT_SHOULDER"] = (
+        frames[1].landmarks["RIGHT_SHOULDER"],
+        frames[1].landmarks["LEFT_SHOULDER"],
+    )
+    for name in frames[2].landmarks:
+        frames[2].landmarks[name][0] += 0.6
+        frames[2].landmarks[name][1] += 0.6
+    sequence = PoseSequence(
+        fps=30.0,
+        width=640,
+        height=480,
+        landmark_names=MEDIAPIPE_REQUIRED_LANDMARKS,
+        frames=frames,
+    )
+
+    processed, report = DefaultPosePostprocessor(PosePostprocessConfig(root_jump_threshold=0.05)).process(sequence)
+
+    assert processed.frames[1].landmarks["LEFT_WRIST"][3] == pytest.approx(0.35, abs=1e-6)
+    assert report.metrics["repaired_landmarks"] >= 1
+    assert report.metrics["root_jump_corrections"] >= 1
+    assert report.warnings
+
+
+def test_default_postprocessor_stabilizes_foot_contact():
+    frames = [_pose_frame(0.0), _pose_frame(0.01), _pose_frame(0.02)]
+    for idx, frame in enumerate(frames):
+        frame.landmarks["LEFT_ANKLE"] = [0.4 + idx * 0.004, 0.91, 0.0, 1.0]
+    sequence = PoseSequence(
+        fps=30.0,
+        width=640,
+        height=480,
+        landmark_names=MEDIAPIPE_REQUIRED_LANDMARKS,
+        frames=frames,
+    )
+
+    processed, report = DefaultPosePostprocessor().process(sequence)
+
+    assert report.metrics["foot_stabilizations"] >= 1
+    assert processed.frames[1].landmarks["LEFT_ANKLE"][0] == pytest.approx(
+        processed.frames[0].landmarks["LEFT_ANKLE"][0]
+    )
 
 
 def _pose_frame(offset: float) -> PoseFrame:

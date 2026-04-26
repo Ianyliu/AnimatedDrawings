@@ -28,5 +28,8 @@ setup(
         'Werkzeug<3',
         'mediapipe>=0.10.14,<0.10.22'
     ],
+    extras_require={
+        'catboost': ['catboost>=1.2.0'],
+    },
     packages=find_packages(),
 )
