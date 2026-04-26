@@ -35,6 +35,30 @@ function setStatus(message) {
   els.status.textContent = message || "";
 }
 
+function cacheBust(url) {
+  if (!url) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}client_ts=${Date.now()}`;
+}
+
+function clearVideo(video) {
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  syncTimeline();
+}
+
+function setVideoSource(video, url) {
+  clearVideo(video);
+  if (!url) return;
+  video.src = cacheBust(url);
+  video.load();
+}
+
+function setImageSource(image, url) {
+  image.src = cacheBust(url);
+}
+
 async function postForm(url, form) {
   form.append("session_id", state.sessionId);
   const response = await fetch(url, { method: "POST", body: form });
@@ -88,8 +112,7 @@ function useBundledMotion() {
     retarget_cfg: selected.dataset.retarget,
     overlay_url: null,
   };
-  els.sourceVideo.removeAttribute("src");
-  els.sourceVideo.load();
+  clearVideo(els.sourceVideo);
   setStatus("Motion selected.");
 }
 
@@ -101,7 +124,7 @@ async function useBundledCharacter() {
   form.append("character_cfg", selected.value);
   const data = await postForm("/api/drawing", form);
   state.drawing = data;
-  els.jointOverlay.src = data.joint_overlay_url;
+  setImageSource(els.jointOverlay, data.joint_overlay_url);
   setStatus("Character ready.");
 }
 
@@ -159,8 +182,7 @@ async function processVideo() {
   setStatus("Estimating pose...");
   const data = await postForm("/api/motion/video", form);
   state.motion = data;
-  els.sourceVideo.src = data.overlay_url;
-  els.sourceVideo.load();
+  setVideoSource(els.sourceVideo, data.overlay_url);
   setStatus("Video motion ready.");
 }
 
@@ -175,8 +197,7 @@ async function uploadBvh() {
   setStatus("Preparing BVH...");
   const data = await postForm("/api/motion/bvh", form);
   state.motion = data;
-  els.sourceVideo.removeAttribute("src");
-  els.sourceVideo.load();
+  clearVideo(els.sourceVideo);
   setStatus("BVH motion ready.");
 }
 
@@ -191,7 +212,7 @@ async function uploadDrawing() {
   setStatus("Estimating drawing joints...");
   const data = await postForm("/api/drawing", form);
   state.drawing = data;
-  els.jointOverlay.src = data.joint_overlay_url;
+  setImageSource(els.jointOverlay, data.joint_overlay_url);
   setStatus("Drawing ready.");
 }
 
@@ -206,19 +227,19 @@ async function renderAnimation() {
     motion_cfg: state.motion.motion_cfg,
     retarget_cfg: state.motion.retarget_cfg,
   });
-  els.animationVideo.src = data.animation_url;
-  els.animationVideo.load();
+  setVideoSource(els.animationVideo, data.animation_url);
   setStatus("Animation ready.");
 }
 
 function syncTimeline() {
-  const duration = Math.max(els.animationVideo.duration || 0, els.sourceVideo.duration || 0);
+  const durations = [els.animationVideo.duration, els.sourceVideo.duration].filter(Number.isFinite);
+  const duration = durations.length ? Math.max(...durations) : 0;
   els.timeline.max = String(duration || 0);
 }
 
 function playBoth() {
-  if (els.sourceVideo.src) els.sourceVideo.play();
-  if (els.animationVideo.src) els.animationVideo.play();
+  if (els.sourceVideo.currentSrc) els.sourceVideo.play().catch((e) => setStatus(e.message));
+  if (els.animationVideo.currentSrc) els.animationVideo.play().catch((e) => setStatus(e.message));
 }
 
 function pauseBoth() {
@@ -228,8 +249,19 @@ function pauseBoth() {
 
 function seekBoth(value) {
   const time = Number(value);
-  if (els.sourceVideo.src) els.sourceVideo.currentTime = Math.min(time, els.sourceVideo.duration || time);
-  if (els.animationVideo.src) els.animationVideo.currentTime = Math.min(time, els.animationVideo.duration || time);
+  if (els.sourceVideo.currentSrc) els.sourceVideo.currentTime = Math.min(time, els.sourceVideo.duration || time);
+  if (els.animationVideo.currentSrc) els.animationVideo.currentTime = Math.min(time, els.animationVideo.duration || time);
+}
+
+function describeVideoError(video) {
+  if (!video.error) return "unknown error";
+  const messages = {
+    1: "loading was aborted",
+    2: "network error",
+    3: "decode error",
+    4: "source not supported",
+  };
+  return messages[video.error.code] || `error code ${video.error.code}`;
 }
 
 els.useMotion.addEventListener("click", useBundledMotion);
@@ -245,9 +277,11 @@ els.pauseBoth.addEventListener("click", pauseBoth);
 els.timeline.addEventListener("input", (event) => seekBoth(event.target.value));
 els.animationVideo.addEventListener("loadedmetadata", syncTimeline);
 els.sourceVideo.addEventListener("loadedmetadata", syncTimeline);
+els.animationVideo.addEventListener("error", () => setStatus(`Animation video failed to load: ${describeVideoError(els.animationVideo)}.`));
+els.sourceVideo.addEventListener("error", () => setStatus(`Source video failed to load: ${describeVideoError(els.sourceVideo)}.`));
 els.animationVideo.addEventListener("timeupdate", () => {
   els.timeline.value = String(els.animationVideo.currentTime || 0);
-  if (els.sourceVideo.src && Math.abs(els.sourceVideo.currentTime - els.animationVideo.currentTime) > 0.2) {
+  if (els.sourceVideo.currentSrc && Math.abs(els.sourceVideo.currentTime - els.animationVideo.currentTime) > 0.2) {
     els.sourceVideo.currentTime = Math.min(els.animationVideo.currentTime, els.sourceVideo.duration || els.animationVideo.currentTime);
   }
 });

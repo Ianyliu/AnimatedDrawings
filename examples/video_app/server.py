@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -16,6 +17,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from animated_drawings.video_pose import build_motion_from_video, write_motion_config_for_bvh
 from animated_drawings.video_pose.constants import DEFAULT_MAX_SECONDS
 from animated_drawings.video_pose.types import PoseVideoError
+from animated_drawings.video_pose.video import transcode_to_browser_mp4
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -171,10 +173,13 @@ def create_app(output_root: Optional[Path] = None) -> Flask:
                 app.config["OUTPUT_ROOT"],
             )
 
-            output_video = session_dir / "animated_drawing.mp4"
+            render_id = time.time_ns()
+            raw_output_video = session_dir / f"animated_drawing_raw_{render_id}.mp4"
+            output_video = session_dir / f"animated_drawing_{render_id}.mp4"
             mvc_cfg = session_dir / "render_mvc.yaml"
-            _write_mvc_cfg(character_cfg, motion_cfg, retarget_cfg, output_video, mvc_cfg)
+            _write_mvc_cfg(character_cfg, motion_cfg, retarget_cfg, raw_output_video, mvc_cfg)
             _run_render(mvc_cfg)
+            transcode_to_browser_mp4(raw_output_video, output_video)
             return jsonify(
                 {
                     "session_id": session_id,
@@ -190,7 +195,11 @@ def create_app(output_root: Optional[Path] = None) -> Flask:
         safe_session_id = _safe_session_id(session_id)
         session_dir = (app.config["OUTPUT_ROOT"] / safe_session_id).resolve()
         _ensure_under(session_dir, app.config["OUTPUT_ROOT"])
-        return send_from_directory(session_dir, filename)
+        response = send_from_directory(session_dir, filename)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     return app
 
@@ -220,7 +229,8 @@ def _output_url(session_id: str, path: Optional[Path], session_dir: Path) -> Opt
     if path is None:
         return None
     rel_path = path.resolve().relative_to(session_dir.resolve()).as_posix()
-    return f"/outputs/{session_id}/{rel_path}"
+    version = path.stat().st_mtime_ns if path.exists() else time.time_ns()
+    return f"/outputs/{session_id}/{rel_path}?v={version}"
 
 
 def _resolve_allowed_path(raw_path: str, output_root: Path) -> Path:

@@ -9,7 +9,7 @@ from animated_drawings.model.bvh import BVH
 from animated_drawings.video_pose import PoseFrame, PoseSequence, PoseToBvhConverter
 from animated_drawings.video_pose.constants import MEDIAPIPE_REQUIRED_LANDMARKS
 from animated_drawings.video_pose.types import VideoDurationError
-from animated_drawings.video_pose.video import validate_video_duration
+from animated_drawings.video_pose.video import _select_metadata_fps, validate_video_duration
 
 
 def test_pose_sequence_to_bvh_round_trip(tmp_path: Path):
@@ -52,6 +52,17 @@ def test_video_duration_validation_rejects_long_video(tmp_path: Path):
 
     with pytest.raises(VideoDurationError):
         validate_video_duration(video_path, max_seconds=10)
+
+
+def test_unreliable_webcam_fps_is_derived_from_duration():
+    fps = _select_metadata_fps(
+        raw_fps=1000.0,
+        frame_count=130,
+        probed_duration=4.37,
+        probed_fps=None,
+    )
+
+    assert fps == pytest.approx(29.75, abs=0.01)
 
 
 def _pose_frame(offset: float) -> PoseFrame:
