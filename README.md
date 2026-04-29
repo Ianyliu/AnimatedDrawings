@@ -10,41 +10,55 @@ This repo contains an implementation of the algorithm described in the paper, [A
 
 
 ## Installation
-*This project has been tested with macOS Ventura 13.2.1 and Ubuntu 18.04. If you're installing on another operating system, you may encounter issues.*
+This branch is set up for Apple Silicon macOS using Python 3.9 and `uv`.
+Avoid building the local TorchServe stack from a Conda-backed Python on M-series Macs; native extensions used by the pose-estimator workers can pick up the wrong architecture.
 
-We *strongly* recommend activating a Python virtual environment prior to installing Animated Drawings.
-Conda's Miniconda is a great choice. Follow [these steps](https://conda.io/projects/conda/en/stable/user-guide/install/index.html) to download and install it. Then run the following commands:
+From a fresh checkout:
 
 ````bash
-    # create and activate the virtual environment
-    conda create --name animated_drawings python=3.8.13
-    conda activate animated_drawings
+# optional but recommended for video preview/transcoding
+brew install uv ffmpeg
 
-    # clone AnimatedDrawings and use pip to install
-    git clone https://github.com/facebookresearch/AnimatedDrawings.git
-    cd AnimatedDrawings
-    pip install -e .
+uv python install 3.9
+uv venv --python 3.9 .venv
+uv pip install -e ".[dev]"
+
+# sanity check the local video workflow
+.venv/bin/python -m pytest tests/test_video_app.py tests/test_video_pose.py
 ````
 
-Mac M1/M2 users: if you get architecture errors, make sure your `~/.condarc` does not have `osx-64`, but only `osx-arm64` and `noarch` in its subdirs listing. You can see that it's going to go sideways as early as `conda create` because it will show `osx-64` instead of `osx-arm64` versions of libraries under "The following NEW packages will be INSTALLED".
+Use the virtual environment's Python directly:
+
+````bash
+.venv/bin/python examples/video_app.py --check
+.venv/bin/python examples/video_app.py --port 5060
+````
+
+If you prefer activating the environment:
+
+````bash
+source .venv/bin/activate
+````
+
+Conda can still work for the basic renderer, but the maintained Apple Silicon path for this branch is the `uv` setup above.
 
 ## Using Animated Drawings
 
 ### Quick Start
 Now that everything's set up, let's animate some drawings! To get started, follow these steps:
-1. Open a terminal and activate the animated_drawings conda environment:
+1. Open a terminal and activate the local virtual environment:
 ````bash
-~ % conda activate animated_drawings
+~ % source .venv/bin/activate
 ````
 
 2. Ensure you're in the root directory of AnimatedDrawings:
 ````bash
-(animated_drawings) ~ % cd {location of AnimatedDrawings on your computer}
+(.venv) ~ % cd {location of AnimatedDrawings on your computer}
 ````
 
 3. Start up a Python interpreter:
 ````bash
-(animated_drawings) AnimatedDrawings % python
+(.venv) AnimatedDrawings % python
 ````
 
 4. Copy and paste the follow two lines into the interpreter:
@@ -156,11 +170,13 @@ The resulting animation was saved as `./garlic_out/video.gif`.
 #### Option 2: Running locally on macOS
 
 Getting Docker working can be complicated, and it's unnecessary if you just want to play around with this locally.
-Contributer @Gravityrail kindly submitted a script that sets up Torchserve locally on MacOS, no Docker required.
+The local setup script prepares TorchServe and the OpenMMLab pose-estimator stack inside `./.venv`.
+Run it from a `uv` Python 3.9 environment, not from Conda.
 
 ```bash
 brew install uv
 brew install openjdk@17
+brew install ffmpeg
 uv python install 3.9
 uv venv --python 3.9 .venv
 uv pip install -e .
@@ -171,14 +187,14 @@ export PATH="$JAVA_HOME/bin:$PATH"
 ../.venv/bin/torchserve --start --disable-token-auth --ts-config config.local.properties --foreground
 
 # in another terminal, verify TorchServe is ready before running the example
-curl http://localhost:8080/ping
+curl http://127.0.0.1:8080/ping
 ```
 
 If your existing `./.venv/bin/python` points into Miniconda or Anaconda, recreate `./.venv` with the commands above before running `setup_macos.sh`. The TorchServe pose-estimator workers load `xtcocotools`, and that native extension has been failing on macOS when the `uv` environment is built on top of a Conda Python.
 
 The macOS command above explicitly uses `--disable-token-auth`. Without that flag, current TorchServe releases enable token auth by default, `curl http://localhost:8080/ping` returns HTTP `400`, and the local example scripts in this repo do not send the required auth headers.
 
-The local macOS config also pins TorchServe's internal gRPC listeners away from the defaults `7070/7071`, which are already occupied on some machines. If you have customized `torchserve/config.local.properties`, make sure `grpc_inference_port` and `grpc_management_port` do not conflict with another local service.
+The local macOS config binds HTTP and gRPC listeners to `127.0.0.1`, and pins TorchServe's internal gRPC listeners away from the defaults `7070/7071`, which are already occupied on some machines. If you have customized `torchserve/config.local.properties`, make sure the listener addresses stay local-only unless you also add authentication, and make sure `grpc_inference_port` and `grpc_management_port` do not conflict with another local service.
 
 `setup_macos.sh` also installs the local `animated_drawings` package into `./.venv` and adds the renderer/example dependencies used by `image_to_animation.py`, including `scikit-image`, `glfw`, and `PyOpenGL`.
 

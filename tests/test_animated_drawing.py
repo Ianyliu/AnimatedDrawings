@@ -4,7 +4,7 @@
 
 from animated_drawings.model.animated_drawing import AnimatedDrawing
 from animated_drawings.config import Config
-from pkg_resources import resource_filename
+from pathlib import Path
 
 
 def test_init():
@@ -18,7 +18,7 @@ def test_init():
     win = glfw.create_window(100, 100, 'Viewer', None, None)
     glfw.make_context_current(win)
 
-    mvc_cfg_fn = resource_filename(__name__, 'test_animated_drawing_files/test_mvc.yaml')
+    mvc_cfg_fn = Path(__file__).resolve().parent / 'test_animated_drawing_files/test_mvc.yaml'
     mvc_config = Config(mvc_cfg_fn)
     char_cfg, retarget_cfg, motion_cfg = mvc_config.scene.animated_characters[0]
 

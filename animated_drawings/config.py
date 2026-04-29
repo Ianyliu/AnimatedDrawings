@@ -5,10 +5,10 @@
 from __future__ import annotations
 import logging
 from collections import defaultdict
+from importlib import resources
 from pathlib import Path
 from typing import Union, List, Tuple, Dict, TypedDict, Optional
 import yaml
-from pkg_resources import resource_filename
 from animated_drawings.utils import resolve_ad_filepath
 
 
@@ -16,7 +16,7 @@ class Config():
 
     def __init__(self, user_mvc_cfg_fn: str) -> None:
         # get the base mvc config
-        with open(resource_filename(__name__, "mvc_base_cfg.yaml"), 'r') as f:
+        with resources.files("animated_drawings").joinpath("mvc_base_cfg.yaml").open("r") as f:
             base_cfg = defaultdict(dict, yaml.load(f, Loader=yaml.FullLoader) or {})  # pyright: ignore[reportUnknownMemberType])
 
         # search for the user-specified mvc config

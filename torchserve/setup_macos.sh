@@ -13,6 +13,17 @@ UV_BIN="$(command -v uv || true)"
 PYTHON_BIN="${VENV_DIR}/bin/python"
 TORCHSERVE_BIN="${VENV_DIR}/bin/torchserve"
 
+require_command() {
+	local command_name="$1"
+	local install_hint="$2"
+
+	if ! command -v "${command_name}" >/dev/null 2>&1; then
+		echo "${command_name} could not be found on PATH."
+		echo "${install_hint}"
+		exit 1
+	fi
+}
+
 get_java_major_version() {
 	if ! command -v java >/dev/null 2>&1; then
 		echo 0
@@ -36,6 +47,27 @@ sanitize_native_build_env() {
 	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS
 }
 
+download_model() {
+	local url="$1"
+	local output="$2"
+
+	if [[ -s "${output}" ]]; then
+		echo "Already downloaded: ${output}"
+		return
+	fi
+
+	curl -fL --retry 3 --connect-timeout 15 "${url}" -o "${output}"
+}
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+	echo "This setup script is for local macOS TorchServe installs."
+	exit 1
+fi
+
+if [[ "$(uname -m)" != "arm64" ]]; then
+	echo "Warning: this script is optimized for Apple Silicon. Continuing on $(uname -m)."
+fi
+
 if [[ ! -x "${PYTHON_BIN}" ]]; then
 	echo "Expected a uv-managed virtual environment at ${VENV_DIR}."
 	echo "Create it from the repository root with:"
@@ -47,6 +79,22 @@ fi
 
 if [[ -z "${UV_BIN}" ]]; then
 	echo "uv could not be found on PATH."
+	echo "Install it with: brew install uv"
+	exit 1
+fi
+
+require_command curl "curl ships with macOS. Reinstall the Xcode command line tools if it is missing."
+
+if ! "${PYTHON_BIN}" - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info[:2] == (3, 9) else 1)
+PY
+then
+	echo "Local TorchServe setup requires Python 3.9 for the pinned OpenMMLab stack."
+	echo "Recreate .venv from the repository root with:"
+	echo "  uv python install 3.9"
+	echo "  uv venv --python 3.9 .venv"
+	echo "  uv pip install -e ."
 	exit 1
 fi
 
@@ -76,6 +124,7 @@ JAVA_MAJOR_VERSION="$(get_java_major_version)"
 if (( JAVA_MAJOR_VERSION < 11 )); then
 	echo "Java 11+ is required for TorchServe; found Java ${JAVA_MAJOR_VERSION}."
 	echo "Installing Homebrew openjdk@17 and using it for this setup."
+	require_command brew "Install Homebrew from https://brew.sh/, then rerun this script."
 	brew install openjdk@17
 	export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
 	export PATH="${JAVA_HOME}/bin:${PATH}"
@@ -149,8 +198,12 @@ PY
 
 echo "*** Downloading models"
 mkdir -p ./model-store
-curl -L https://github.com/facebookresearch/AnimatedDrawings/releases/download/v0.0.1/drawn_humanoid_detector.mar -o ./model-store/drawn_humanoid_detector.mar
-curl -L https://github.com/facebookresearch/AnimatedDrawings/releases/download/v0.0.1/drawn_humanoid_pose_estimator.mar -o ./model-store/drawn_humanoid_pose_estimator.mar
+download_model \
+	"https://github.com/facebookresearch/AnimatedDrawings/releases/download/v0.0.1/drawn_humanoid_detector.mar" \
+	"./model-store/drawn_humanoid_detector.mar"
+download_model \
+	"https://github.com/facebookresearch/AnimatedDrawings/releases/download/v0.0.1/drawn_humanoid_pose_estimator.mar" \
+	"./model-store/drawn_humanoid_pose_estimator.mar"
 
 echo "*** Now run torchserve:"
 echo "export JAVA_HOME=\"${JAVA_HOME:-$(/usr/libexec/java_home 2>/dev/null || true)}\""
