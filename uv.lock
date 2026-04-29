@@ -103,6 +103,7 @@ dependencies = [
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "setuptools" },
     { name = "shapely", version = "2.0.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "shapely", version = "2.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "torchserve" },
@@ -135,6 +136,7 @@ requires-dist = [
     { name = "scikit-image", specifier = ">=0.24.0" },
     { name = "scikit-learn", specifier = ">=1.1.2" },
     { name = "scipy", specifier = ">=1.10.0" },
+    { name = "setuptools", specifier = ">=68,<81" },
     { name = "shapely", specifier = ">=1.8.5" },
     { name = "torchserve", specifier = ">=0.12.0" },
     { name = "tqdm", specifier = ">=4.66.3" },
@@ -3573,6 +3575,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/a5/cc46d5308e1056d756b20211f039f609c86d3073aa66088cd5af57a652fa/sentencepiece-0.2.1-cp39-cp39-win32.whl", hash = "sha256:caa4e560c72c151da80036aecc2159e51a7fd8ae9efebefd96860460ce6bd025", size = 999563, upload-time = "2025-08-12T06:59:07.833Z" },
     { url = "https://files.pythonhosted.org/packages/87/06/94bc50dc6b113bbf5f4ba7bfe85cfa7d62c679f9fb68f658d48f3ea556cf/sentencepiece-0.2.1-cp39-cp39-win_amd64.whl", hash = "sha256:2af5a1fb05013332ad94343b8b5f3973e006a2dde2dfba55a819549e054e2f0f", size = 1054663, upload-time = "2025-08-12T06:59:09.234Z" },
     { url = "https://files.pythonhosted.org/packages/8d/21/55267fcdc1a99612248c299c12d8f7c51d6e5ae992f32694d17adcf13fda/sentencepiece-0.2.1-cp39-cp39-win_arm64.whl", hash = "sha256:3d165fbb9bf8fba35f1946ba2617c3f9995679f07438325f07c026d53f33e746", size = 1033914, upload-time = "2025-08-12T06:59:10.705Z" },
+]
+
+[[package]]
+name = "setuptools"
+version = "80.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/95/faf61eb8363f26aa7e1d762267a8d602a1b26d4f3a1e758e92cb3cb8b054/setuptools-80.10.2.tar.gz", hash = "sha256:8b0e9d10c784bf7d262c4e5ec5d4ec94127ce206e8738f29a437945fbc219b70", size = 1200343, upload-time = "2026-01-25T22:38:17.252Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/b8/f1f62a5e3c0ad2ff1d189590bfa4c46b4f3b6e49cef6f26c6ee4e575394d/setuptools-80.10.2-py3-none-any.whl", hash = "sha256:95b30ddfb717250edb492926c92b5221f7ef3fbcc2b07579bcd4a27da21d0173", size = 1064234, upload-time = "2026-01-25T22:38:15.216Z" },
 ]
 
 [[package]]
