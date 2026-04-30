@@ -1,4 +1,5 @@
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import sys
@@ -6,7 +7,9 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PIL import Image
 
+import animated_drawings.video_pose.live as live_helpers
 from animated_drawings.config import RetargetConfig
 from animated_drawings.video_pose import (
     CausalPoseSmoother,
@@ -131,7 +134,37 @@ def test_compose_live_dashboard_dimensions():
 
     dashboard = compose_live_dashboard(camera, animation, status, pane_size=240)
 
-    assert dashboard.shape == (64 + 240 + 48 + 16, 16 * 2 + 240 * 2 + 16, 3)
+    assert dashboard.shape == (454, 534, 3)
+
+
+def test_compose_live_dashboard_draws_upload_tile_and_status():
+    camera = np.zeros((120, 160, 3), dtype=np.uint8)
+    animation = np.full((80, 80, 3), 255, dtype=np.uint8)
+    status = analyze_pose_frame(_pose_frame(0.0))
+
+    dashboard = compose_live_dashboard(
+        camera,
+        animation,
+        status,
+        pane_size=240,
+        active_figure="char2",
+        upload_status="Analyzing sketch.png...",
+        figures=["char1", "char2", "uploaded sketch"],
+        active_figure_index=1,
+    )
+    left, top, right, bottom = live_helpers.live_dashboard_upload_rect(240)
+    upload_tile = dashboard[top:bottom, left:right]
+
+    assert upload_tile.shape[0] > 0
+    assert upload_tile.shape[1] > 0
+    assert int(upload_tile.std()) > 0
+
+
+def test_live_dashboard_text_fitting_ellipsizes_long_labels():
+    fitted = live_helpers._ellipsize_text("a very long uploaded drawing name", 80, 0.5, 1)
+
+    assert fitted.endswith("...")
+    assert live_helpers._text_size(fitted, 0.5, 1)[0] <= 80
 
 
 def test_webcam_figure_discovery_lists_bundled_characters():
@@ -194,6 +227,132 @@ def test_webcam_dashboard_key_requests_figure_switches():
     webcam._handle_dashboard_key(ord("]"), state, smoother, figure_state.live_retargeter, figure_state)
     assert figure_state.pending_index == 2
 
+    webcam._handle_dashboard_key(ord("u"), state, smoother, figure_state.live_retargeter, figure_state)
+    assert state.upload_requested
+
+    webcam._handle_dashboard_key(ord("C"), state, smoother, figure_state.live_retargeter, figure_state)
+    assert state.choose_character_requested
+
+
+def test_webcam_dashboard_mouse_requests_upload():
+    webcam = _webcam_module()
+    state = webcam.RunState()
+    left, top, right, bottom = webcam.live_dashboard_upload_rect(240)
+
+    webcam._handle_dashboard_mouse(
+        webcam.cv2.EVENT_LBUTTONUP,
+        (left + right) // 2,
+        (top + bottom) // 2,
+        0,
+        {"state": state, "pane_size": 240},
+    )
+
+    assert state.upload_requested
+
+
+def test_webcam_upload_picker_adds_generated_character(tmp_path: Path, monkeypatch):
+    webcam = _webcam_module()
+    drawing_path = tmp_path / "My Sketch.png"
+    Image.new("RGB", (12, 12), "white").save(drawing_path)
+
+    def fake_image_to_annotations(image_path, out_dir, timeout):
+        out_dir.mkdir(exist_ok=True, parents=True)
+        (out_dir / "char_cfg.yaml").write_text("height: 12\nwidth: 12\nskeleton: []\n", encoding="utf-8")
+        Image.new("RGBA", (12, 12), "white").save(out_dir / "texture.png")
+        Image.new("L", (12, 12), 255).save(out_dir / "mask.png")
+
+    monkeypatch.setattr(webcam, "_pick_upload_path", lambda: drawing_path)
+    monkeypatch.setattr(webcam, "_image_to_annotations", fake_image_to_annotations)
+    figure_state = _figure_state_for_webcam(webcam)
+    args = SimpleNamespace(upload_output_dir=tmp_path / "uploads", torchserve_timeout=0.1, max_image_size=4096)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        upload_state = webcam.UploadState(executor=executor)
+        webcam._start_upload_from_picker(upload_state, figure_state, args)
+        assert upload_state.future is not None
+        upload_state.future.result(timeout=5)
+        webcam._poll_upload_job(upload_state, figure_state)
+
+    assert figure_state.options[-1].name == "my-sketch"
+    assert figure_state.options[-1].character_cfg.name == "char_cfg.yaml"
+    assert figure_state.pending_index == len(figure_state.options) - 1
+    assert upload_state.status_message == "Added my-sketch."
+
+
+def test_webcam_choose_existing_character_accepts_config_and_folder(tmp_path: Path):
+    webcam = _webcam_module()
+    character_dir = _write_minimal_character_dir(tmp_path / "existing_figure")
+
+    option_from_dir = webcam._figure_option_for_existing_character(character_dir)
+    option_from_cfg = webcam._figure_option_for_existing_character(character_dir / "char_cfg.yaml")
+
+    assert option_from_dir.character_cfg == character_dir / "char_cfg.yaml"
+    assert option_from_cfg.character_cfg == character_dir / "char_cfg.yaml"
+    assert option_from_dir.name == "existing_figure"
+
+
+def test_webcam_choose_existing_character_picker_switches_to_selected(tmp_path: Path, monkeypatch):
+    webcam = _webcam_module()
+    character_dir = _write_minimal_character_dir(tmp_path / "picked_figure")
+    figure_state = _figure_state_for_webcam(webcam)
+    upload_state = webcam.UploadState(executor=ThreadPoolExecutor(max_workers=1))
+    monkeypatch.setattr(webcam, "_pick_existing_character_path", lambda: character_dir)
+
+    try:
+        webcam._add_existing_character_from_picker(upload_state, figure_state)
+    finally:
+        upload_state.executor.shutdown(wait=False, cancel_futures=True)
+
+    assert figure_state.options[-1].name == "picked_figure"
+    assert figure_state.pending_index == len(figure_state.options) - 1
+
+
+def test_webcam_upload_rejects_invalid_or_unreadable_images(tmp_path: Path):
+    webcam = _webcam_module()
+    text_path = tmp_path / "drawing.txt"
+    text_path.write_text("not an image", encoding="utf-8")
+    bad_png = tmp_path / "bad.png"
+    bad_png.write_bytes(b"not a png")
+
+    with pytest.raises(webcam.UploadError, match="supported drawing"):
+        webcam._validate_image_upload(text_path, 4096)
+    with pytest.raises(webcam.UploadError, match="readable PNG"):
+        webcam._validate_image_upload(bad_png, 4096)
+
+
+def test_webcam_file_dialog_uses_osascript_on_macos(monkeypatch):
+    webcam = _webcam_module()
+    calls = []
+
+    def fake_run(command, capture_output, text, timeout):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="/tmp/drawing.png\n", stderr="")
+
+    monkeypatch.setattr(webcam.sys, "platform", "darwin")
+    monkeypatch.setattr(webcam.subprocess, "run", fake_run)
+
+    selected, used_dialog = webcam._open_file_dialog("Choose file", [("All files", "*")])
+
+    assert selected == Path("/tmp/drawing.png")
+    assert used_dialog
+    assert calls[0][0] == "osascript"
+    assert "choose file" in calls[0][2]
+
+
+def test_webcam_directory_dialog_handles_macos_cancel(monkeypatch):
+    webcam = _webcam_module()
+
+    def fake_run(command, capture_output, text, timeout):
+        return SimpleNamespace(returncode=1, stdout="", stderr="User canceled.")
+
+    monkeypatch.setattr(webcam.sys, "platform", "darwin")
+    monkeypatch.setattr(webcam.subprocess, "run", fake_run)
+
+    selected, used_dialog = webcam._open_directory_dialog("Choose folder")
+
+    assert selected is None
+    assert used_dialog
+
 
 def test_webcam_to_animation_help_does_not_open_camera():
     result = subprocess.run(
@@ -255,3 +414,19 @@ def _webcam_module():
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _figure_state_for_webcam(webcam):
+    return webcam.FigureState(
+        options=[webcam.FigureOption("char1", Path("char1/char_cfg.yaml"))],
+        active_index=0,
+        live_retargeter=SimpleNamespace(reset_root_reference=lambda: None),
+    )
+
+
+def _write_minimal_character_dir(character_dir: Path) -> Path:
+    character_dir.mkdir()
+    (character_dir / "char_cfg.yaml").write_text("height: 8\nwidth: 8\nskeleton: []\n", encoding="utf-8")
+    Image.new("RGBA", (8, 8), "white").save(character_dir / "texture.png")
+    Image.new("L", (8, 8), 255).save(character_dir / "mask.png")
+    return character_dir

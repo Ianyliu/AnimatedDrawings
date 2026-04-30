@@ -36,6 +36,18 @@ class CausalPoseSmootherConfig:
     visibility_threshold: float = 0.35
 
 
+@dataclass(frozen=True)
+class LiveDashboardLayout:
+    width: int
+    height: int
+    margin: int
+    gap: int
+    top_h: int
+    pane_y: int
+    bottom_y: int
+    upload_rect: Tuple[int, int, int, int]
+
+
 def analyze_pose_frame(
     frame: PoseFrame,
     required_landmarks: Optional[Sequence[str]] = None,
@@ -137,44 +149,216 @@ def compose_live_dashboard(
     paused: bool = False,
     active_figure: Optional[str] = None,
     controls: Optional[str] = None,
+    upload_status: Optional[str] = None,
+    figures: Optional[Sequence[str]] = None,
+    active_figure_index: Optional[int] = None,
 ) -> npt.NDArray[np.uint8]:
-    top_h = 64
-    bottom_h = 48
-    gap = 16
-    margin = 16
-    pane_h = pane_size
-    pane_w = pane_size
-    width = margin * 2 + pane_w * 2 + gap
-    height = top_h + pane_h + bottom_h + margin
-    canvas = np.full((height, width, 3), 245, dtype=np.uint8)
+    layout = _dashboard_layout(pane_size)
+    width = layout.width
+    height = layout.height
+    margin = layout.margin
+    gap = layout.gap
+    top_h = layout.top_h
+    pane_y = layout.pane_y
+    bottom_y = layout.bottom_y
+    upload_rect = layout.upload_rect
+    canvas = np.full((height, width, 3), (241, 243, 239), dtype=np.uint8)
 
-    cv2.rectangle(canvas, (0, 0), (width, top_h), (34, 37, 42), -1)
-    cv2.rectangle(canvas, (0, 0), (10, top_h), status.color, -1)
+    cv2.rectangle(canvas, (0, 0), (width, top_h), (32, 34, 38), -1)
+    cv2.rectangle(canvas, (0, 0), (12, top_h), status.color, -1)
     state_text = status.state.replace("_", " ").upper()
     if paused and status.state != "paused":
         state_text = f"{state_text} / PAUSED"
-    _put_text(canvas, state_text, (margin, 24), 0.58, (255, 255, 255), thickness=2)
-    _put_text(canvas, status.message, (margin, 50), 0.58, (224, 229, 235), thickness=1)
+    _draw_status_pill(canvas, state_text, status.color, (margin, 24))
+    header_message = status.message
+    if upload_status:
+        header_message = f"{status.message}  |  {upload_status}"
+    _put_fitted_text(
+        canvas,
+        header_message,
+        (margin, 60),
+        width - margin * 2,
+        0.56,
+        (226, 231, 235),
+        thickness=1,
+    )
 
     left_x = margin
-    right_x = margin + pane_w + gap
-    pane_y = top_h
+    right_x = margin + pane_size + gap
     _paste(canvas, _fit_to_square(camera_bgr, pane_size), left_x, pane_y)
     _paste(canvas, _fit_to_square(animation_bgr, pane_size), right_x, pane_y)
 
-    cv2.rectangle(canvas, (left_x, pane_y), (left_x + pane_w, pane_y + pane_h), (35, 35, 35), 1)
-    cv2.rectangle(canvas, (right_x, pane_y), (right_x + pane_w, pane_y + pane_h), (35, 35, 35), 1)
-    _put_label(canvas, "Webcam Pose", (left_x + 12, pane_y + 28))
+    _draw_pane_frame(canvas, left_x, pane_y, pane_size, "Webcam Pose")
     animation_label = "Animated Drawing"
     if active_figure:
         animation_label = f"Figure: {active_figure}"
-    _put_label(canvas, animation_label, (right_x + 12, pane_y + 28))
+    _draw_pane_frame(canvas, right_x, pane_y, pane_size, animation_label)
 
-    controls_y = top_h + pane_h + 32
-    controls = controls or "Space pause/resume   R reset pose   Q/Esc quit   Keep full body in frame"
-    _put_text(canvas, controls, (margin, controls_y), 0.58, (45, 48, 53), thickness=1)
+    _draw_upload_tile(canvas, upload_rect, upload_status)
+    _draw_figure_carousel(
+        canvas,
+        figures=figures,
+        active_figure=active_figure,
+        active_figure_index=active_figure_index,
+        origin=(margin, bottom_y + 22),
+        max_width=upload_rect[0] - margin - 16,
+    )
+    controls = controls or "Space pause   R reset   U upload   C choose rig   [/] figure   Q quit"
+    _put_fitted_text(
+        canvas,
+        controls,
+        (margin, bottom_y + 92),
+        upload_rect[0] - margin - 18,
+        0.54,
+        (55, 58, 61),
+        thickness=1,
+    )
 
     return canvas
+
+
+def live_dashboard_upload_rect(pane_size: int) -> Tuple[int, int, int, int]:
+    """Return the upload tile hit area for the dashboard generated above."""
+
+    return _dashboard_layout(pane_size).upload_rect
+
+
+def _dashboard_layout(pane_size: int) -> LiveDashboardLayout:
+    pane_size = max(120, int(pane_size))
+    margin = 18
+    gap = 18
+    top_h = 82
+    pane_y = top_h + 14
+    bottom_h = 118
+    width = margin * 2 + pane_size * 2 + gap
+    bottom_y = pane_y + pane_size
+    height = bottom_y + bottom_h
+    upload_w = min(184, max(136, pane_size - 28))
+    upload_h = 74
+    upload_rect = (
+        width - margin - upload_w,
+        bottom_y + 22,
+        width - margin,
+        bottom_y + 22 + upload_h,
+    )
+    return LiveDashboardLayout(
+        width=width,
+        height=height,
+        margin=margin,
+        gap=gap,
+        top_h=top_h,
+        pane_y=pane_y,
+        bottom_y=bottom_y,
+        upload_rect=upload_rect,
+    )
+
+
+def _draw_status_pill(
+    canvas: npt.NDArray[np.uint8],
+    text: str,
+    color: Tuple[int, int, int],
+    origin: Tuple[int, int],
+) -> None:
+    x, y = origin
+    scale = 0.52
+    thickness = 2
+    text_w, text_h = _text_size(text, scale, thickness)
+    pad_x = 12
+    pad_y = 7
+    rect = (x, y - text_h - pad_y, x + text_w + pad_x * 2, y + pad_y)
+    cv2.rectangle(canvas, rect[:2], rect[2:], _darken(color, 0.72), -1)
+    cv2.rectangle(canvas, rect[:2], rect[2:], color, 1)
+    _put_text(canvas, text, (x + pad_x, y), scale, (255, 255, 255), thickness=thickness)
+
+
+def _draw_pane_frame(canvas: npt.NDArray[np.uint8], x: int, y: int, size: int, label: str) -> None:
+    cv2.rectangle(canvas, (x - 1, y - 1), (x + size + 1, y + size + 1), (210, 213, 209), 1)
+    cv2.rectangle(canvas, (x, y), (x + size, y + size), (42, 44, 48), 1)
+    _put_label(canvas, label, (x + 12, y + 29), max_width=size - 24)
+
+
+def _draw_upload_tile(
+    canvas: npt.NDArray[np.uint8],
+    rect: Tuple[int, int, int, int],
+    upload_status: Optional[str],
+) -> None:
+    x1, y1, x2, y2 = rect
+    accent = (58, 132, 230)
+    fill = (255, 255, 255)
+    if upload_status:
+        lowered = upload_status.lower()
+        if any(token in lowered for token in ("failed", "error", "could not", "unsupported", "too large")):
+            accent = (65, 78, 214)
+        elif any(token in lowered for token in ("ready", "added", "complete", "switched")):
+            accent = TRACKING_COLOR
+        elif any(token in lowered for token in ("analyzing", "upload", "preparing", "choose")):
+            accent = PARTIAL_COLOR
+
+    cv2.rectangle(canvas, (x1, y1), (x2, y2), fill, -1)
+    cv2.rectangle(canvas, (x1, y1), (x2, y2), (205, 209, 205), 1)
+    cv2.rectangle(canvas, (x1, y1), (x1 + 7, y2), accent, -1)
+    _put_text(canvas, "U", (x1 + 21, y1 + 31), 0.72, accent, thickness=2)
+    _put_fitted_text(canvas, "Upload drawing", (x1 + 52, y1 + 28), x2 - x1 - 62, 0.55, (33, 36, 39), thickness=2)
+    subtitle = "PNG, JPG, WebP"
+    if upload_status:
+        subtitle = upload_status
+    _put_fitted_text(canvas, subtitle, (x1 + 21, y1 + 57), x2 - x1 - 32, 0.46, (86, 89, 92), thickness=1)
+
+
+def _draw_figure_carousel(
+    canvas: npt.NDArray[np.uint8],
+    *,
+    figures: Optional[Sequence[str]],
+    active_figure: Optional[str],
+    active_figure_index: Optional[int],
+    origin: Tuple[int, int],
+    max_width: int,
+) -> None:
+    x, y = origin
+    _put_text(canvas, "Figures", (x, y), 0.48, (95, 98, 101), thickness=1)
+    chip_x = x
+    chip_y = y + 16
+    names = list(figures or [])
+    if not names and active_figure:
+        names = [active_figure]
+        active_figure_index = 0
+
+    if not names:
+        _put_fitted_text(canvas, "No figures loaded", (chip_x, chip_y + 25), max_width, 0.52, (70, 73, 76), thickness=1)
+        return
+
+    active_index = active_figure_index if active_figure_index is not None else 0
+    visible = names[:9]
+    for idx, name in enumerate(visible):
+        label = f"{idx + 1} {name}"
+        scale = 0.48
+        thickness = 1
+        text_w, text_h = _text_size(label, scale, thickness)
+        chip_w = min(max(54, text_w + 22), 118)
+        if chip_x + chip_w > x + max_width:
+            remaining = len(visible) - idx
+            if remaining > 0 and chip_x + 54 <= x + max_width:
+                _draw_chip(canvas, f"+{remaining}", (chip_x, chip_y), 54, False)
+            break
+        _draw_chip(canvas, label, (chip_x, chip_y), chip_w, idx == active_index)
+        chip_x += chip_w + 8
+
+
+def _draw_chip(
+    canvas: npt.NDArray[np.uint8],
+    text: str,
+    origin: Tuple[int, int],
+    width: int,
+    active: bool,
+) -> None:
+    x, y = origin
+    height = 32
+    fill = (37, 93, 71) if active else (255, 255, 255)
+    border = (37, 93, 71) if active else (200, 205, 200)
+    text_color = (255, 255, 255) if active else (50, 53, 56)
+    cv2.rectangle(canvas, (x, y), (x + width, y + height), fill, -1)
+    cv2.rectangle(canvas, (x, y), (x + width, y + height), border, 1)
+    _put_fitted_text(canvas, text, (x + 10, y + 21), width - 18, 0.48, text_color, thickness=1)
 
 
 class LiveMediaPipePoseEstimator:
@@ -434,11 +618,20 @@ def _paste(canvas: npt.NDArray[np.uint8], image: npt.NDArray[np.uint8], x: int, 
     canvas[y : y + height, x : x + width] = image
 
 
-def _put_label(canvas: npt.NDArray[np.uint8], text: str, origin: Tuple[int, int]) -> None:
+def _put_label(
+    canvas: npt.NDArray[np.uint8],
+    text: str,
+    origin: Tuple[int, int],
+    max_width: Optional[int] = None,
+) -> None:
     x, y = origin
-    (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.62, 2)
+    scale = 0.58
+    thickness = 2
+    if max_width is not None:
+        text = _ellipsize_text(text, max_width, scale, thickness)
+    text_w, text_h = _text_size(text, scale, thickness)
     cv2.rectangle(canvas, (x - 8, y - text_h - 10), (x + text_w + 8, y + 8), (30, 32, 36), -1)
-    _put_text(canvas, text, (x, y), 0.62, (255, 255, 255), thickness=2)
+    _put_text(canvas, text, (x, y), scale, (255, 255, 255), thickness=thickness)
 
 
 def _put_text(
@@ -451,6 +644,50 @@ def _put_text(
     thickness: int,
 ) -> None:
     cv2.putText(canvas, text, origin, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+
+
+def _put_fitted_text(
+    canvas: npt.NDArray[np.uint8],
+    text: str,
+    origin: Tuple[int, int],
+    max_width: int,
+    scale: float,
+    color: Tuple[int, int, int],
+    *,
+    thickness: int,
+) -> None:
+    fitted = _ellipsize_text(text, max(1, max_width), scale, thickness)
+    _put_text(canvas, fitted, origin, scale, color, thickness=thickness)
+
+
+def _ellipsize_text(text: str, max_width: int, scale: float, thickness: int) -> str:
+    if _text_size(text, scale, thickness)[0] <= max_width:
+        return text
+    suffix = "..."
+    if _text_size(suffix, scale, thickness)[0] > max_width:
+        return ""
+
+    lo = 0
+    hi = len(text)
+    best = ""
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = text[:mid].rstrip() + suffix
+        if _text_size(candidate, scale, thickness)[0] <= max_width:
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best or suffix
+
+
+def _text_size(text: str, scale: float, thickness: int) -> Tuple[int, int]:
+    (width, height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+    return width, height
+
+
+def _darken(color: Tuple[int, int, int], amount: float) -> Tuple[int, int, int]:
+    return tuple(max(0, min(255, int(channel * amount))) for channel in color)
 
 
 def _pad_landmark(values: List[float]) -> List[float]:

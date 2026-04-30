@@ -18,6 +18,7 @@ from animated_drawings.video_pose.live import (
     camera_error_status,
     compose_live_dashboard,
     draw_pose_overlay,
+    live_dashboard_upload_rect,
     paused_status,
 )
 from animated_drawings.video_pose.pipeline import build_motion_from_video
@@ -60,6 +61,7 @@ __all__ = [
     "compose_live_dashboard",
     "create_pose_estimator",
     "draw_pose_overlay",
+    "live_dashboard_upload_rect",
     "paused_status",
     "write_motion_config_for_bvh",
 ]

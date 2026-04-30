@@ -28,6 +28,7 @@ examples/garlic_out
 **/*.mp4
 **/*.gif
 examples/video_app/outputs
+examples/webcam_uploads
 
 # DO include .gifs used by the Readme
 !media/*.gif

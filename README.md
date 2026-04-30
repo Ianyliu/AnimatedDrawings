@@ -326,9 +326,13 @@ The live retargeter expects a full-body pose. If your head, shoulders, hips, kne
 Controls:
 - `Space`: pause or resume pose updates
 - `R`: reset the live root reference and pose smoother
+- `U`: upload a drawing image (`.png`, `.jpg`, `.jpeg`, `.webp`) and switch to it when analysis finishes
+- `C`: choose an existing generated character folder or `char_cfg.yaml`
 - `[` / `]`: switch to the previous or next figure
 - `1`-`9`: switch directly to a listed figure
 - `Q` or `Esc`: quit
+
+The dashboard starts with a bundled character so you can try the real-time tracking first. Uploading a raw drawing image uses the existing TorchServe drawing-analysis pipeline; choosing an existing generated `char_cfg.yaml` does not require TorchServe.
 
 Useful options:
 
@@ -351,6 +355,9 @@ Useful options:
 
 # Use a different camera index
 .venv/bin/python examples/webcam_to_animation.py --camera 1
+
+# Put generated webcam upload assets somewhere else
+.venv/bin/python examples/webcam_to_animation.py --upload-output-dir /tmp/webcam_uploads
 ````
 
 If macOS asks for camera access, grant permission to the terminal app you are using. If the script cannot open the camera, try another `--camera` index or close other apps that may be using the webcam.
