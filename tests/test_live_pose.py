@@ -1,6 +1,8 @@
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -132,6 +134,67 @@ def test_compose_live_dashboard_dimensions():
     assert dashboard.shape == (64 + 240 + 48 + 16, 16 * 2 + 240 * 2 + 16, 3)
 
 
+def test_webcam_figure_discovery_lists_bundled_characters():
+    webcam = _webcam_module()
+
+    options = webcam._discover_bundled_figures()
+
+    assert [option.name for option in options] == ["char1", "char2", "char3", "char4", "char5", "char6"]
+    assert all(option.bundled for option in options)
+    assert all(option.character_cfg.name == "char_cfg.yaml" for option in options)
+
+
+def test_webcam_custom_character_is_added_to_figure_options(tmp_path: Path):
+    webcam = _webcam_module()
+    custom_dir = tmp_path / "custom_figure"
+    custom_dir.mkdir()
+    custom_cfg = custom_dir / "char_cfg.yaml"
+    custom_cfg.write_text("height: 1\nwidth: 1\nskeleton: []\n", encoding="utf-8")
+
+    options, active_index = webcam._figure_options_for_character(str(custom_cfg))
+
+    assert active_index == 0
+    assert options[0].name == "custom_figure"
+    assert options[0].character_cfg == custom_cfg.resolve()
+    assert not options[0].bundled
+    assert [option.name for option in options[1:]] == ["char1", "char2", "char3", "char4", "char5", "char6"]
+
+
+def test_webcam_bundled_character_starts_on_matching_figure():
+    webcam = _webcam_module()
+
+    options, active_index = webcam._figure_options_for_character("examples/characters/char2/char_cfg.yaml")
+
+    assert options[active_index].name == "char2"
+    assert all(option.bundled for option in options)
+
+
+def test_webcam_dashboard_key_requests_figure_switches():
+    webcam = _webcam_module()
+    figure_state = webcam.FigureState(
+        options=[
+            webcam.FigureOption("char1", Path("char1/char_cfg.yaml")),
+            webcam.FigureOption("char2", Path("char2/char_cfg.yaml")),
+            webcam.FigureOption("char3", Path("char3/char_cfg.yaml")),
+        ],
+        active_index=1,
+        live_retargeter=SimpleNamespace(reset_root_reference=lambda: None),
+    )
+    state = webcam.RunState()
+    smoother = SimpleNamespace(reset=lambda: None)
+
+    webcam._handle_dashboard_key(ord("3"), state, smoother, figure_state.live_retargeter, figure_state)
+    assert figure_state.pending_index == 2
+
+    figure_state.pending_index = None
+    webcam._handle_dashboard_key(ord("["), state, smoother, figure_state.live_retargeter, figure_state)
+    assert figure_state.pending_index == 0
+
+    figure_state.pending_index = None
+    webcam._handle_dashboard_key(ord("]"), state, smoother, figure_state.live_retargeter, figure_state)
+    assert figure_state.pending_index == 2
+
+
 def test_webcam_to_animation_help_does_not_open_camera():
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "examples/webcam_to_animation.py"), "--help"],
@@ -144,6 +207,23 @@ def test_webcam_to_animation_help_does_not_open_camera():
     assert result.returncode == 0
     assert "webcam" in result.stdout.lower()
     assert "--no-overlay" in result.stdout
+    assert "--list-figures" in result.stdout
+
+
+def test_webcam_to_animation_list_figures_does_not_open_camera():
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "examples/webcam_to_animation.py"), "--list-figures"],
+        capture_output=True,
+        cwd=REPO_ROOT,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0
+    assert "Available bundled figures" in result.stdout
+    assert "1. char1" in result.stdout
+    assert "6. char6" in result.stdout
+    assert "Could not open webcam" not in result.stderr
 
 
 def _pose_frame(timestamp: float, root_shift: float = 0.0) -> PoseFrame:
@@ -163,3 +243,15 @@ def _pose_frame(timestamp: float, root_shift: float = 0.0) -> PoseFrame:
         "RIGHT_ANKLE": [0.59 + root_shift, 0.94, 0.0, 1.0],
     }
     return PoseFrame(timestamp=timestamp, landmarks=landmarks)
+
+
+def _webcam_module():
+    module_name = "webcam_to_animation_under_test"
+    module_path = REPO_ROOT / "examples/webcam_to_animation.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module

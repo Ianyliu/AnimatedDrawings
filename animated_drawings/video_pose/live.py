@@ -135,6 +135,8 @@ def compose_live_dashboard(
     *,
     pane_size: int,
     paused: bool = False,
+    active_figure: Optional[str] = None,
+    controls: Optional[str] = None,
 ) -> npt.NDArray[np.uint8]:
     top_h = 64
     bottom_h = 48
@@ -163,10 +165,13 @@ def compose_live_dashboard(
     cv2.rectangle(canvas, (left_x, pane_y), (left_x + pane_w, pane_y + pane_h), (35, 35, 35), 1)
     cv2.rectangle(canvas, (right_x, pane_y), (right_x + pane_w, pane_y + pane_h), (35, 35, 35), 1)
     _put_label(canvas, "Webcam Pose", (left_x + 12, pane_y + 28))
-    _put_label(canvas, "Animated Drawing", (right_x + 12, pane_y + 28))
+    animation_label = "Animated Drawing"
+    if active_figure:
+        animation_label = f"Figure: {active_figure}"
+    _put_label(canvas, animation_label, (right_x + 12, pane_y + 28))
 
     controls_y = top_h + pane_h + 32
-    controls = "Space pause/resume   R reset pose   Q/Esc quit   Keep full body in frame"
+    controls = controls or "Space pause/resume   R reset pose   Q/Esc quit   Keep full body in frame"
     _put_text(canvas, controls, (margin, controls_y), 0.58, (45, 48, 53), thickness=1)
 
     return canvas

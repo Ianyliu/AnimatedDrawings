@@ -326,11 +326,16 @@ The live retargeter expects a full-body pose. If your head, shoulders, hips, kne
 Controls:
 - `Space`: pause or resume pose updates
 - `R`: reset the live root reference and pose smoother
+- `[` / `]`: switch to the previous or next figure
+- `1`-`9`: switch directly to a listed figure
 - `Q` or `Esc`: quit
 
 Useful options:
 
 ````bash
+# List bundled figures without opening the webcam
+.venv/bin/python examples/webcam_to_animation.py --list-figures
+
 # Use a different bundled or generated character
 .venv/bin/python examples/webcam_to_animation.py \
   --character examples/characters/char2/char_cfg.yaml
