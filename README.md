@@ -308,6 +308,48 @@ Open `http://127.0.0.1:5060`. The app can record or upload a short video, upload
 
 Bundled characters work without TorchServe. Uploading a new drawing still uses the existing image-to-annotations path, so TorchServe must be running and healthy before using that part of the app.
 
+### Live Webcam Pose Prototype
+This branch also includes an isolated local prototype that drives a bundled animated drawing directly from webcam pose. It uses MediaPipe and OpenCV for the webcam pose stream, then feeds the pose into the renderer without writing or reading `motion.bvh`, `motion.yaml`, `pose_sequence.json`, or a rendered MP4.
+
+You do **not** need TorchServe for this webcam prototype when using one of the bundled characters. TorchServe is only needed when you want the project to analyze and rig a new drawing image. If you already have a `char_cfg.yaml` for a custom drawing, you can pass it to this prototype without running TorchServe.
+
+From the repo root, run:
+
+````bash
+.venv/bin/python examples/webcam_to_animation.py --camera 0
+````
+
+The app opens one dashboard window named `Animated Drawings Live Webcam`. The left side shows the webcam feed with a pose overlay, and the right side shows the animated drawing. Move in front of the webcam to drive the character.
+
+The live retargeter expects a full-body pose. If your head, shoulders, hips, knees, or ankles are missing or low-confidence, the status bar will explain what is missing, such as `Step back: full body not in view. Missing knees/ankles.` The character holds the last usable pose while tracking is partial or lost.
+
+Controls:
+- `Space`: pause or resume pose updates
+- `R`: reset the live root reference and pose smoother
+- `Q` or `Esc`: quit
+
+Useful options:
+
+````bash
+# Use a different bundled or generated character
+.venv/bin/python examples/webcam_to_animation.py \
+  --character examples/characters/char2/char_cfg.yaml
+
+# Let the character root follow the detected hip center instead of staying locked
+.venv/bin/python examples/webcam_to_animation.py --root-mode hip
+
+# Show the rig and try MediaPipe z-depth for body-part draw ordering
+.venv/bin/python examples/webcam_to_animation.py --draw-rig --depth-mode mediapipe-z
+
+# Hide the webcam pose overlay
+.venv/bin/python examples/webcam_to_animation.py --no-overlay
+
+# Use a different camera index
+.venv/bin/python examples/webcam_to_animation.py --camera 1
+````
+
+If macOS asks for camera access, grant permission to the terminal app you are using. If the script cannot open the camera, try another `--camera` index or close other apps that may be using the webcam.
+
 
 
 

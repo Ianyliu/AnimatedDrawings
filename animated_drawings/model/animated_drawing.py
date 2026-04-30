@@ -7,7 +7,7 @@ import ctypes
 import heapq
 import math
 import time
-from typing import Dict, List, Tuple, Optional, TypedDict, DefaultDict
+from typing import Any, Dict, List, Tuple, Optional, TypedDict, DefaultDict
 from collections import defaultdict
 from pathlib import Path
 
@@ -221,7 +221,13 @@ class AnimatedDrawing(Transform, TimeManager):
     Afterwars, only the update() method needs to be called.
     """
 
-    def __init__(self, char_cfg: CharacterConfig, retarget_cfg: RetargetConfig, motion_cfg: MotionConfig):
+    def __init__(
+        self,
+        char_cfg: CharacterConfig,
+        retarget_cfg: RetargetConfig,
+        motion_cfg: Optional[MotionConfig] = None,
+        retargeter: Optional[Any] = None,
+    ):
         super().__init__()
 
         self.char_cfg: CharacterConfig = char_cfg
@@ -251,8 +257,16 @@ class AnimatedDrawing(Transform, TimeManager):
 
         self.indices: npt.NDArray[np.int32] = np.stack(self.mesh['triangles']).flatten()  # order in which to render triangles
 
-        self.retargeter: Retargeter
-        self._initialize_retargeter_bvh(motion_cfg, retarget_cfg)
+        self.retargeter: Any
+        if retargeter is None:
+            if motion_cfg is None:
+                msg = 'motion_cfg is required when no retargeter is provided'
+                logging.critical(msg)
+                assert False, msg
+            self._initialize_retargeter_bvh(motion_cfg, retarget_cfg)
+        else:
+            self.retargeter = retargeter
+            self._validate_external_retargeter(retargeter, retarget_cfg)
 
         # initialize arap solver with original joint positions
         self.arap = ARAP(self.rig.get_joints_2D_positions(), self.mesh['triangles'], self.mesh['vertices'])
@@ -263,8 +277,21 @@ class AnimatedDrawing(Transform, TimeManager):
         self._is_opengl_initialized: bool = False
         self._vertex_buffer_dirty_bit: bool = True
 
-        # pose the animated drawing using the first frame of the bvh
+        # pose the animated drawing using the retargeter's current frame
         self.update()
+
+    def _validate_external_retargeter(self, retargeter: Any, retarget_cfg: RetargetConfig) -> None:
+        if not hasattr(retargeter, 'bvh_joint_names'):
+            msg = 'external retargeter must expose bvh_joint_names'
+            logging.critical(msg)
+            assert False, msg
+        if not hasattr(retargeter, 'get_retargeted_frame_data'):
+            msg = 'external retargeter must expose get_retargeted_frame_data()'
+            logging.critical(msg)
+            assert False, msg
+
+        char_joint_names: List[str] = self.rig.root_joint.get_chain_joint_names()
+        retarget_cfg.validate_char_and_bvh_joint_names(char_joint_names, list(retargeter.bvh_joint_names))
 
     def _modify_retargeting_cfg_for_character(self):
         """
