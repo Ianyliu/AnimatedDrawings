@@ -9,6 +9,7 @@ import yaml
 from animated_drawings.model.bvh import BVH
 from animated_drawings.video_pose import (
     DefaultPosePostprocessor,
+    FlowLandmarkCorrector,
     PoseFrame,
     PosePostprocessConfig,
     PoseSequence,
@@ -18,6 +19,7 @@ from animated_drawings.video_pose import (
     create_pose_estimator,
 )
 from animated_drawings.video_pose.constants import MEDIAPIPE_REQUIRED_LANDMARKS
+from animated_drawings.video_pose.landmark_flow_corrector import create_landmark_flow_corrector
 from animated_drawings.video_pose.types import VideoDurationError
 from animated_drawings.video_pose.video import _select_metadata_fps, transcode_to_browser_mp4, validate_video_duration
 import animated_drawings.video_pose.pipeline as pipeline_helpers
@@ -122,6 +124,7 @@ def test_build_motion_from_video_preserves_estimator_object_compatibility(tmp_pa
 
     assert result.motion_config_path.exists()
     assert result.quality_report is not None
+    assert "flow_model_enabled" in result.quality_report.metrics
     sequence = PoseSequence.read_json(result.pose_sequence_path)
     assert sequence.quality_report is not None
 
@@ -179,6 +182,60 @@ def test_default_postprocessor_stabilizes_foot_contact():
     )
 
 
+def test_landmark_flow_missing_checkpoint_falls_back(tmp_path: Path):
+    corrector, metrics = create_landmark_flow_corrector(tmp_path / "missing.pt", enabled=True)
+
+    assert corrector is None
+    assert metrics["flow_model_enabled"] == 1.0
+    assert metrics["flow_model_loaded"] == 0.0
+    assert metrics["flow_fallback_used"] == 1.0
+
+
+def test_landmark_flow_disabled_does_not_fallback(tmp_path: Path):
+    corrector, metrics = create_landmark_flow_corrector(tmp_path / "missing.pt", enabled=False)
+
+    assert corrector is None
+    assert metrics["flow_model_enabled"] == 0.0
+    assert metrics["flow_fallback_used"] == 0.0
+
+
+def test_landmark_flow_corrects_only_low_confidence_model_landmarks():
+    corrector = _fake_flow_corrector(["LEFT_WRIST", "RIGHT_WRIST"])
+    sequence = PoseSequence(
+        fps=30.0,
+        width=640,
+        height=480,
+        landmark_names=["LEFT_WRIST", "RIGHT_WRIST", "EXTRA"],
+        frames=[
+            PoseFrame(
+                timestamp=0.0,
+                landmarks={
+                    "LEFT_WRIST": [0.2, 0.3, 0.7, 0.1],
+                    "RIGHT_WRIST": [0.8, 0.3, 0.9, 1.0],
+                    "EXTRA": [0.1, 0.2, 0.3, 0.0],
+                },
+            )
+        ],
+    )
+
+    corrected, metrics = corrector.correct_sequence(sequence)
+
+    assert corrected.frames[0].landmarks["LEFT_WRIST"] == pytest.approx([0.9, 0.8, 0.7, 0.1])
+    assert corrected.frames[0].landmarks["RIGHT_WRIST"] == pytest.approx([0.8, 0.3, 0.9, 1.0])
+    assert corrected.frames[0].landmarks["EXTRA"] == pytest.approx([0.1, 0.2, 0.3, 0.0])
+    assert metrics["flow_corrected_landmarks"] == 1.0
+    assert metrics["flow_corrected_ratio"] == pytest.approx(0.5)
+
+
+def test_landmark_flow_real_checkpoint_loads_when_torch_available():
+    pytest.importorskip("torch")
+
+    corrector = FlowLandmarkCorrector.from_checkpoint(Path("outputs/landmark_flow/landmark_flow_corrector.pt"))
+
+    assert len(corrector.landmark_order) == 13
+    assert corrector.threshold == pytest.approx(0.5)
+
+
 def _pose_frame(offset: float) -> PoseFrame:
     landmarks = {
         "NOSE": [0.50, 0.18, 0.0, 1.0],
@@ -196,3 +253,23 @@ def _pose_frame(offset: float) -> PoseFrame:
         "RIGHT_ANKLE": [0.59, 0.94, 0.0, 1.0],
     }
     return PoseFrame(timestamp=offset, landmarks=landmarks)
+
+
+def _fake_flow_corrector(landmark_order):
+    class FakeFlowCorrector(FlowLandmarkCorrector):
+        def __init__(self):
+            from collections import deque
+
+            self.landmark_order = list(landmark_order)
+            self.threshold = 0.5
+            self.window_size = 31
+            self.inference_steps = 1
+            self._live_frames = deque(maxlen=self.window_size)
+
+        def _predict_xy(self, condition_np):
+            prediction = condition_np[..., :2].copy()
+            prediction[..., 0] = 0.9
+            prediction[..., 1] = 0.8
+            return prediction
+
+    return FakeFlowCorrector()

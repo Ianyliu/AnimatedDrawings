@@ -89,6 +89,18 @@ sbatch scripts/slurm/evaluate_landmark_flow_cpu.sbatch
 
 The key acceptance check is whether `masked_l1` and `masked_rmse` beat the matching interpolation metrics by at least 10 percent on the test split or on the hard corruption buckets.
 
+## 4. Inference / Real-time
+Running the real-time animation with flow-based correction model, threshold as 0.5
+```bash
+uv run python examples/webcam_to_animation.py \
+  --landmark-flow-model outputs/landmark_flow/landmark_flow_corrector.pt \
+  --landmark-flow-threshold 0.5
+```
+Running the real-time animation without flow-based correction model
+```bash
+uv run python examples/webcam_to_animation.py --no-landmark-flow
+```
+
 ## Notes
 
 - If your cluster requires modules or a Conda environment, add the relevant `module load ...` or `conda activate ...` lines near the top of each `.sbatch` file.

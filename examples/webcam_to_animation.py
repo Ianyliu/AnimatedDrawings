@@ -30,6 +30,7 @@ from animated_drawings.model.scene import Scene
 from animated_drawings.utils import resolve_ad_filepath
 from animated_drawings.video_pose.live import (
     CausalPoseSmoother,
+    CausalPoseSmootherConfig,
     LiveMediaPipePoseEstimator,
     LivePoseRetargeter,
     PoseTrackingStatus,
@@ -40,6 +41,7 @@ from animated_drawings.video_pose.live import (
     live_dashboard_upload_rect,
     paused_status,
 )
+from animated_drawings.video_pose.landmark_flow_corrector import create_landmark_flow_corrector
 from animated_drawings.view.window_view import WindowView
 
 
@@ -115,6 +117,18 @@ def parse_args():
     parser.add_argument("--no-overlay", action="store_true", help="Hide the webcam pose overlay.")
     parser.add_argument("--model-complexity", type=int, choices=(0, 1, 2), default=1, help="MediaPipe model complexity.")
     parser.add_argument(
+        "--landmark-flow-model",
+        default=None,
+        help="Optional landmark-flow checkpoint for correcting low-confidence MediaPipe landmarks.",
+    )
+    parser.add_argument("--no-landmark-flow", action="store_true", help="Disable landmark-flow correction.")
+    parser.add_argument(
+        "--landmark-flow-threshold",
+        type=float,
+        default=0.5,
+        help="Visibility threshold below which landmark-flow may correct x/y landmarks.",
+    )
+    parser.add_argument(
         "--upload-output-dir",
         default=str(DEFAULT_UPLOAD_OUTPUT_DIR),
         help="Directory for generated webcam drawing uploads.",
@@ -158,7 +172,15 @@ def main() -> None:
     try:
         view = _create_hidden_view(args)
         state = RunState()
-        smoother = CausalPoseSmoother()
+        smoother = CausalPoseSmoother(
+            CausalPoseSmootherConfig(visibility_threshold=float(args.landmark_flow_threshold))
+        )
+        flow_corrector, flow_metrics = create_landmark_flow_corrector(
+            Path(args.landmark_flow_model) if args.landmark_flow_model else None,
+            threshold=float(args.landmark_flow_threshold),
+            enabled=False if args.no_landmark_flow else None,
+        )
+        _print_landmark_flow_status(flow_metrics)
         _print_startup_controls(figure_state)
 
         with LiveMediaPipePoseEstimator(model_complexity=args.model_complexity) as estimator:
@@ -171,6 +193,7 @@ def main() -> None:
                 figure_state,
                 state,
                 args,
+                flow_corrector=flow_corrector,
                 mirror=args.mirror,
                 pane_size=args.window_size,
                 show_overlay=not args.no_overlay,
@@ -192,6 +215,7 @@ def _run_loop(
     state: RunState,
     args,
     *,
+    flow_corrector=None,
     mirror: bool,
     pane_size: int,
     show_overlay: bool,
@@ -221,8 +245,13 @@ def _run_loop(
                         frame = cv2.flip(frame, 1)
                     last_camera_frame = frame
                     pose_frame = estimator.estimate_frame(frame, timestamp=now - start_time)
+                    if flow_corrector is not None:
+                        pose_frame, _ = flow_corrector.correct_live_frame(pose_frame)
                     last_pose_frame = pose_frame
-                    status = analyze_pose_frame(pose_frame)
+                    status = analyze_pose_frame(
+                        pose_frame,
+                        visibility_threshold=float(args.landmark_flow_threshold),
+                    )
                     smoothed = smoother.process(pose_frame)
                     live_retargeter.update_pose(smoothed)
                 else:
@@ -734,6 +763,13 @@ def _print_startup_controls(figure_state: FigureState) -> None:
         "Controls: Space pause/resume, R reset pose, U upload drawing, "
         "C choose character rig, [/] switch figure, 1-9 select figure, Q/Esc quit."
     )
+
+
+def _print_landmark_flow_status(metrics: dict[str, float]) -> None:
+    if metrics.get("flow_model_loaded"):
+        print(f"Landmark flow correction enabled at visibility threshold {metrics.get('flow_threshold', 0.5):.2f}.")
+    elif metrics.get("flow_fallback_used"):
+        print("Landmark flow correction unavailable; using the existing live postprocessing only.")
 
 
 def _figure_short_label(index: int, option: FigureOption) -> str:

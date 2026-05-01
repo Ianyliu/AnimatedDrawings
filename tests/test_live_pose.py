@@ -14,6 +14,7 @@ from animated_drawings.config import RetargetConfig
 from animated_drawings.video_pose import (
     CausalPoseSmoother,
     CausalPoseSmootherConfig,
+    FlowLandmarkCorrector,
     LivePoseRetargeter,
     PoseFrame,
     analyze_pose_frame,
@@ -86,6 +87,18 @@ def test_causal_pose_smoother_smooths_and_repairs_low_confidence_landmarks():
     repaired = smoother.process(PoseFrame(timestamp=0.2, landmarks={"LEFT_WRIST": [0.9, 0.9, 0.9, 0.01]}))
 
     assert repaired.landmarks["LEFT_WRIST"][:3] == pytest.approx([0.25, 0.25, 0.25])
+
+
+def test_landmark_flow_live_frame_uses_edge_padded_rolling_window():
+    corrector = _fake_live_flow_corrector(["LEFT_WRIST"])
+
+    corrected, metrics = corrector.correct_live_frame(
+        PoseFrame(timestamp=0.0, landmarks={"LEFT_WRIST": [0.2, 0.3, 0.4, 0.1]})
+    )
+
+    assert corrected.landmarks["LEFT_WRIST"] == pytest.approx([0.7, 0.6, 0.4, 0.1])
+    assert metrics["flow_corrected_landmarks"] == 1.0
+    assert corrector.seen_window_shape == (31, 1, 4)
 
 
 def test_pose_tracking_status_reports_full_pose():
@@ -366,6 +379,8 @@ def test_webcam_to_animation_help_does_not_open_camera():
     assert result.returncode == 0
     assert "webcam" in result.stdout.lower()
     assert "--no-overlay" in result.stdout
+    assert "--no-landmark-flow" in result.stdout
+    assert "--landmark-flow-threshold" in result.stdout
     assert "--list-figures" in result.stdout
 
 
@@ -402,6 +417,28 @@ def _pose_frame(timestamp: float, root_shift: float = 0.0) -> PoseFrame:
         "RIGHT_ANKLE": [0.59 + root_shift, 0.94, 0.0, 1.0],
     }
     return PoseFrame(timestamp=timestamp, landmarks=landmarks)
+
+
+def _fake_live_flow_corrector(landmark_order):
+    class FakeFlowCorrector(FlowLandmarkCorrector):
+        def __init__(self):
+            from collections import deque
+
+            self.landmark_order = list(landmark_order)
+            self.threshold = 0.5
+            self.window_size = 31
+            self.inference_steps = 1
+            self._live_frames = deque(maxlen=self.window_size)
+            self.seen_window_shape = None
+
+        def _predict_xy(self, condition_np):
+            self.seen_window_shape = condition_np.shape
+            prediction = condition_np[..., :2].copy()
+            prediction[..., 0] = 0.7
+            prediction[..., 1] = 0.6
+            return prediction
+
+    return FakeFlowCorrector()
 
 
 def _webcam_module():

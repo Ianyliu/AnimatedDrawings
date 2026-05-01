@@ -8,6 +8,12 @@ from animated_drawings.video_pose.estimators import (
     available_pose_estimators,
     create_pose_estimator,
 )
+from animated_drawings.video_pose.landmark_flow_corrector import (
+    DEFAULT_LANDMARK_FLOW_MODEL,
+    DEFAULT_LANDMARK_FLOW_THRESHOLD,
+    FlowLandmarkCorrector,
+    create_landmark_flow_corrector,
+)
 from animated_drawings.video_pose.live import (
     CausalPoseSmoother,
     CausalPoseSmootherConfig,
@@ -39,6 +45,9 @@ __all__ = [
     "CausalPoseSmoother",
     "CausalPoseSmootherConfig",
     "DefaultPosePostprocessor",
+    "DEFAULT_LANDMARK_FLOW_MODEL",
+    "DEFAULT_LANDMARK_FLOW_THRESHOLD",
+    "FlowLandmarkCorrector",
     "LiveMediaPipePoseEstimator",
     "LivePoseRetargeter",
     "MediaPipePoseEstimator",
@@ -60,6 +69,7 @@ __all__ = [
     "camera_error_status",
     "compose_live_dashboard",
     "create_pose_estimator",
+    "create_landmark_flow_corrector",
     "draw_pose_overlay",
     "live_dashboard_upload_rect",
     "paused_status",
