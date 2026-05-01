@@ -463,7 +463,18 @@ def test_video_app_rejects_malformed_bvh(tmp_path: Path):
     assert response.get_json()["error"]["code"] == "invalid_bvh"
 
 
-def test_video_app_rejects_image_extension_mismatch(tmp_path: Path):
+def test_video_app_normalizes_image_extension_mismatch(tmp_path: Path, monkeypatch):
+    seen = {}
+
+    def fake_image_to_annotations(image_path, out_dir, timeout):
+        seen["name"] = Path(image_path).name
+        with Image.open(image_path) as image:
+            seen["format"] = image.format
+        out_dir.mkdir(exist_ok=True, parents=True)
+        (out_dir / "char_cfg.yaml").write_text(yaml.safe_dump({"skeleton": [], "height": 1, "width": 1}))
+        Image.new("RGB", (1, 1), "white").save(out_dir / "joint_overlay.png")
+
+    monkeypatch.setattr(server, "_image_to_annotations", fake_image_to_annotations)
     app = _test_app(tmp_path)
     client = app.test_client()
     _, headers = _session_context(client)
@@ -472,14 +483,15 @@ def test_video_app_rejects_image_extension_mismatch(tmp_path: Path):
         "/api/drawing",
         headers=headers,
         data={
-            "session_id": "bad-image",
+            "session_id": "mismatch-image",
             "drawing": (_png_bytes(), "drawing.jpg"),
         },
         content_type="multipart/form-data",
     )
 
-    assert response.status_code == 400
-    assert response.get_json()["error"]["code"] == "file_type_mismatch"
+    assert response.status_code == 202
+    _completed_job_result(client, response.get_json())
+    assert seen == {"name": "annotation_input.png", "format": "PNG"}
 
 
 def test_video_app_rejects_unreadable_video(tmp_path: Path):

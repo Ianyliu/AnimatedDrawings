@@ -265,10 +265,13 @@ def test_webcam_dashboard_mouse_requests_upload():
 
 def test_webcam_upload_picker_adds_generated_character(tmp_path: Path, monkeypatch):
     webcam = _webcam_module()
-    drawing_path = tmp_path / "My Sketch.png"
-    Image.new("RGB", (12, 12), "white").save(drawing_path)
+    drawing_path = tmp_path / "My Sketch.jpg"
+    Image.new("RGB", (12, 12), "white").save(drawing_path, format="PNG")
 
     def fake_image_to_annotations(image_path, out_dir, timeout):
+        with Image.open(image_path) as image:
+            assert Path(image_path).name == "source.png"
+            assert image.format == "PNG"
         out_dir.mkdir(exist_ok=True, parents=True)
         (out_dir / "char_cfg.yaml").write_text("height: 12\nwidth: 12\nskeleton: []\n", encoding="utf-8")
         Image.new("RGBA", (12, 12), "white").save(out_dir / "texture.png")

@@ -21,7 +21,7 @@ import cv2
 import requests
 import yaml
 from flask import Flask, abort, current_app, jsonify, make_response, render_template, request, send_from_directory
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
@@ -57,6 +57,7 @@ SESSION_COOKIE_NAME = "animated_drawings_video_session"
 
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm", ".avi", ".mkv"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_FORMATS = {"JPEG", "MPO", "PNG", "WEBP"}
 BVH_EXTENSIONS = {".bvh"}
 CHARACTER_PREVIEW_FILES = {"texture.png", "joint_overlay.png", "image.png", "original_img.png"}
 DEMO_MEDIA = {"garlic.gif": MEDIA_DIR / "garlic.gif"}
@@ -486,14 +487,15 @@ def create_app(output_root: Optional[Path] = None, job_manager: Optional[JobMana
             job_id = app.config["JOB_MANAGER"].new_job_id()
             job_dir = _job_output_dir(session_dir, "drawing_upload", job_id)
             drawing_path = _save_upload(uploaded, job_dir / f"uploaded_drawing{suffix}")
-            _validate_image_file(drawing_path, suffix, app)
+            _validate_image_file(drawing_path, app)
+            annotation_path = _write_annotation_image(drawing_path, job_dir / "annotation_input.png")
             _guard_heavy_job(app, session_id)
             char_dir = job_dir / "character"
 
             def work(update: ProgressCallback) -> dict[str, Any]:
                 update(15, "Estimating drawing joints...")
                 _image_to_annotations(
-                    drawing_path,
+                    annotation_path,
                     char_dir,
                     timeout=app.config["VIDEO_APP_TORCHSERVE_TIMEOUT"],
                 )
@@ -893,7 +895,7 @@ def _validate_video_file(video_path: Path, max_seconds: int, app: Flask) -> None
     _validate_video_metadata(metadata, app)
 
 
-def _validate_image_file(image_path: Path, suffix: str, app: Flask) -> None:
+def _validate_image_file(image_path: Path, app: Flask) -> None:
     try:
         with Image.open(image_path) as image:
             width, height = image.size
@@ -902,20 +904,31 @@ def _validate_image_file(image_path: Path, suffix: str, app: Flask) -> None:
     except (OSError, UnidentifiedImageError) as e:
         raise AppError("invalid_image", "Upload a readable PNG, JPEG, or WebP drawing.") from e
 
-    expected_formats = {
-        ".png": "PNG",
-        ".jpg": "JPEG",
-        ".jpeg": "JPEG",
-        ".webp": "WEBP",
-    }
-    expected_format = expected_formats.get(suffix.lower())
-    if expected_format and image_format != expected_format:
-        raise AppError("file_type_mismatch", f"Drawing file content must match the {suffix} extension.")
+    if image_format not in IMAGE_FORMATS:
+        raise AppError("invalid_image", "Upload a readable PNG, JPEG, or WebP drawing.")
 
     max_width = int(app.config["VIDEO_APP_MAX_IMAGE_WIDTH"])
     max_height = int(app.config["VIDEO_APP_MAX_IMAGE_HEIGHT"])
     if width > max_width or height > max_height:
         raise AppError("image_too_large", f"Drawing image must be at most {max_width}x{max_height}.")
+
+
+def _write_annotation_image(image_path: Path, output_path: Path) -> Path:
+    output_path.parent.mkdir(exist_ok=True, parents=True)
+    try:
+        with Image.open(image_path) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode in {"RGBA", "LA"} or "transparency" in image.info:
+                image = image.convert("RGBA")
+                background = Image.new("RGBA", image.size, (255, 255, 255, 255))
+                background.alpha_composite(image)
+                image = background.convert("RGB")
+            else:
+                image = image.convert("RGB")
+            image.save(output_path, format="PNG")
+    except (OSError, UnidentifiedImageError) as e:
+        raise AppError("invalid_image", "Upload a readable PNG, JPEG, or WebP drawing.") from e
+    return output_path
 
 
 def _validate_bvh_file(bvh_path: Path, app: Flask) -> None:

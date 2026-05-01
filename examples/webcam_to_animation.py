@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -22,7 +21,7 @@ import glfw
 import numpy as np
 import numpy.typing as npt
 from OpenGL import GL
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from animated_drawings.config import CharacterConfig, RetargetConfig, ViewConfig
 from animated_drawings.model.animated_drawing import AnimatedDrawing
@@ -51,6 +50,7 @@ DEFAULT_CHARACTER = EXAMPLES_DIR / "characters/char1/char_cfg.yaml"
 DEFAULT_RETARGET = EXAMPLES_DIR / "config/retarget/mediapipe_pfp.yaml"
 DEFAULT_UPLOAD_OUTPUT_DIR = EXAMPLES_DIR / "webcam_uploads"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_FORMATS = {"JPEG", "MPO", "PNG", "WEBP"}
 
 
 @dataclass(frozen=True)
@@ -442,8 +442,8 @@ def _rig_uploaded_drawing(image_path: Path, args) -> FigureOption:
     character_dir = job_dir / "character"
     job_dir.mkdir(exist_ok=False, parents=True)
 
-    source_path = job_dir / f"source{image_path.suffix.lower()}"
-    shutil.copy2(image_path, source_path)
+    source_path = job_dir / "source.png"
+    _write_annotation_image(image_path, source_path)
     _image_to_annotations(source_path, character_dir, timeout=float(args.torchserve_timeout))
     char_cfg_path = _resolve_existing_character_cfg(character_dir)
     return FigureOption(name=slug, character_cfg=char_cfg_path, bundled=False)
@@ -491,16 +491,28 @@ def _validate_image_upload(image_path: Path, max_image_size: int) -> None:
     except (OSError, UnidentifiedImageError) as e:
         raise UploadError("Upload a readable PNG, JPEG, or WebP drawing.") from e
 
-    expected_formats = {
-        ".png": "PNG",
-        ".jpg": "JPEG",
-        ".jpeg": "JPEG",
-        ".webp": "WEBP",
-    }
-    if image_format != expected_formats.get(suffix):
-        raise UploadError(f"Drawing file content must match the {suffix} extension.")
+    if image_format not in IMAGE_FORMATS:
+        raise UploadError("Upload a readable PNG, JPEG, or WebP drawing.")
     if width > max_image_size or height > max_image_size:
         raise UploadError(f"Drawing image must be at most {max_image_size}x{max_image_size}.")
+
+
+def _write_annotation_image(image_path: Path, output_path: Path) -> Path:
+    output_path.parent.mkdir(exist_ok=True, parents=True)
+    try:
+        with Image.open(image_path) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode in {"RGBA", "LA"} or "transparency" in image.info:
+                image = image.convert("RGBA")
+                background = Image.new("RGBA", image.size, (255, 255, 255, 255))
+                background.alpha_composite(image)
+                image = background.convert("RGB")
+            else:
+                image = image.convert("RGB")
+            image.save(output_path, format="PNG")
+    except (OSError, UnidentifiedImageError) as e:
+        raise UploadError("Upload a readable PNG, JPEG, or WebP drawing.") from e
+    return output_path
 
 
 def _append_figure_option(figure_state: FigureState, option: FigureOption) -> int:
