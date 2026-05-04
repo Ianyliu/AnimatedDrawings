@@ -1,0 +1,27 @@
+{
+  "input_image": "/Users/ianliu/Downloads/example-posing.png",
+  "outputs": {
+    "raw_overlay": "poster_pose_figures/poster_raw_overlay.png",
+    "raw_direct": "poster_pose_figures/poster_raw_direct.png",
+    "corrected_overlay": "poster_pose_figures/poster_corrected_overlay.png",
+    "corrected_direct": "poster_pose_figures/poster_corrected_direct.png",
+    "smoothed_overlay": "poster_pose_figures/poster_smoothed_overlay.png",
+    "smoothed_direct": "poster_pose_figures/poster_smoothed_direct.png"
+  },
+  "pose_status": {
+    "state": "partial",
+    "message": "Step back: full body not in view. Missing ankles.",
+    "missing_landmarks": [
+      "LEFT_ANKLE",
+      "RIGHT_ANKLE"
+    ]
+  },
+  "flow_metrics": {
+    "flow_model_enabled": 1.0,
+    "flow_model_loaded": 0.0,
+    "flow_corrected_landmarks": 0.0,
+    "flow_corrected_ratio": 0.0,
+    "flow_threshold": 0.5,
+    "flow_fallback_used": 1.0
+  }
+}

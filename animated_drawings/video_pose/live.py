@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import os
+import tempfile
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -369,7 +371,12 @@ class LiveMediaPipePoseEstimator:
         model_complexity: int = 1,
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
+        static_image_mode: bool = False,
     ) -> None:
+        mpl_cache_dir = os.path.join(tempfile.gettempdir(), "animated_drawings_mpl")
+        os.makedirs(mpl_cache_dir, exist_ok=True)
+        os.environ.setdefault("MPLCONFIGDIR", mpl_cache_dir)
+
         try:
             import mediapipe as mp
         except ImportError as e:
@@ -379,17 +386,23 @@ class LiveMediaPipePoseEstimator:
 
         self._mp_pose = mp.solutions.pose
         self.landmark_names = [landmark.name for landmark in self._mp_pose.PoseLandmark]
-        self._pose = self._mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=model_complexity,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence,
-        )
+        try:
+            self._pose = self._mp_pose.Pose(
+                static_image_mode=static_image_mode,
+                model_complexity=model_complexity,
+                min_detection_confidence=min_detection_confidence,
+                min_tracking_confidence=min_tracking_confidence,
+            )
+        except Exception as e:
+            raise PoseVideoError(f"MediaPipe pose initialization failed. {e}") from e
 
     def estimate_frame(self, frame_bgr: npt.NDArray[np.uint8], timestamp: float) -> PoseFrame:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         rgb.flags.writeable = False
-        results = self._pose.process(rgb)
+        try:
+            results = self._pose.process(rgb)
+        except RuntimeError as e:
+            raise PoseVideoError(f"MediaPipe pose estimation failed. {e}") from e
         landmarks: Dict[str, List[float]] = {}
         if results.pose_landmarks:
             for idx, landmark in enumerate(results.pose_landmarks.landmark):
