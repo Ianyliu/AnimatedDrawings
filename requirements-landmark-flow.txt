@@ -1,0 +1,6 @@
+numpy
+opencv-python
+PyOpenGL
+setuptools<81
+torch
+tqdm

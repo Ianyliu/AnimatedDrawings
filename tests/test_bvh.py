@@ -3,12 +3,12 @@
 # LICENSE file in the root directory of this source tree.
 
 from animated_drawings.model.bvh import BVH
-from pkg_resources import resource_filename
+from pathlib import Path
 
 
 def test_bvh_from_file():
-    bvh_fn = resource_filename(__name__, 'test_bvh_files/zombie.bvh')
-    b = BVH.from_file(bvh_fn)
+    bvh_fn = Path(__file__).resolve().parent / 'test_bvh_files/zombie.bvh'
+    b = BVH.from_file(str(bvh_fn))
 
     # was the skeleton built correctly?
     assert b.root_joint.joint_count() == 34

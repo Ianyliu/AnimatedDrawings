@@ -5,7 +5,7 @@
 from animated_drawings.view.view import View
 from animated_drawings.view.shaders.shader import Shader
 from animated_drawings.view.utils import get_projection_matrix
-from animated_drawings.utils import read_background_image
+from animated_drawings.utils import package_resource_path, read_background_image
 from animated_drawings.model.scene import Scene
 from animated_drawings.model.camera import Camera
 from animated_drawings.model.transform import Transform
@@ -16,8 +16,6 @@ import logging
 from typing import Tuple, Dict
 import numpy as np
 import numpy.typing as npt
-from pathlib import Path
-from pkg_resources import resource_filename
 
 
 class WindowView(View):
@@ -67,16 +65,16 @@ class WindowView(View):
         GL.glFramebufferTexture2D(GL.GL_READ_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, self.txtr_id, 0)
 
     def _prep_shaders(self) -> None:
-        BVH_VERT = Path(resource_filename(__name__, "shaders/bvh.vert"))
-        BVH_FRAG = Path(resource_filename(__name__, "shaders/bvh.frag"))
+        BVH_VERT = package_resource_path("view", "shaders", "bvh.vert")
+        BVH_FRAG = package_resource_path("view", "shaders", "bvh.frag")
         self._initiatize_shader('bvh_shader', str(BVH_VERT), str(BVH_FRAG))
 
-        COLOR_VERT = Path(resource_filename(__name__, "shaders/color.vert"))
-        COLOR_FRAG = Path(resource_filename(__name__, "shaders/color.frag"))
+        COLOR_VERT = package_resource_path("view", "shaders", "color.vert")
+        COLOR_FRAG = package_resource_path("view", "shaders", "color.frag")
         self._initiatize_shader('color_shader', str(COLOR_VERT), str(COLOR_FRAG))
 
-        TEXTURE_VERT = Path(resource_filename(__name__, "shaders/texture.vert"))
-        TEXTURE_FRAG = Path(resource_filename(__name__, "shaders/texture.frag"))
+        TEXTURE_VERT = package_resource_path("view", "shaders", "texture.vert")
+        TEXTURE_FRAG = package_resource_path("view", "shaders", "texture.frag")
         self._initiatize_shader('texture_shader', str(TEXTURE_VERT), str(TEXTURE_FRAG), texture=True)
 
     def _update_shaders_view_transform(self, camera: Camera) -> None:

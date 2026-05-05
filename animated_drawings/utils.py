@@ -2,35 +2,50 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from PIL import Image, ImageOps
+import logging
+from importlib import resources
+from pathlib import Path
+
+import cv2
 import numpy as np
 import numpy.typing as npt
-import cv2
-from pathlib import Path
-import logging
-from pkg_resources import resource_filename
+from PIL import Image, ImageOps
 
 TOLERANCE = 10**-5
+PACKAGE_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = PACKAGE_ROOT.parent
+
+
+def package_resource_path(*parts: str) -> Path:
+    """Return a filesystem path for a bundled animated_drawings resource."""
+
+    return Path(str(resources.files("animated_drawings").joinpath(*parts)))
 
 
 def resolve_ad_filepath(file_name: str, file_type: str) -> Path:
     """
     Given input filename, attempts to find the file, first by relative to cwd,
-    then by absolute, the relative to animated_drawings root directory.
-    If not found, prints error message indicating which file_type it is.
+    then by absolute, then relative to the package and repository roots.
+    If not found, raises a FileNotFoundError indicating which file_type it is.
     """
-    if Path(file_name).exists():
-        return Path(file_name)
-    elif Path.joinpath(Path.cwd(), file_name).exists():
-        return Path.joinpath(Path.cwd(), file_name)
-    elif Path(resource_filename(__name__, file_name)).exists():
-        return Path(resource_filename(__name__, file_name))
-    elif Path(resource_filename(__name__, str(Path('..', file_name)))):
-        return Path(resource_filename(__name__, str(Path('..', file_name))))
+    path = Path(file_name).expanduser()
+    candidates = [path]
+    if not path.is_absolute():
+        candidates.extend(
+            [
+                Path.cwd() / path,
+                PACKAGE_ROOT / path,
+                REPO_ROOT / path,
+            ]
+        )
 
-    msg = f'Could not find the {file_type} specified: {file_name}'
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    msg = f"Could not find the {file_type} specified: {file_name}"
     logging.critical(msg)
-    assert False, msg
+    raise FileNotFoundError(msg)
 
 
 def read_background_image(file_name: str) -> npt.NDArray[np.uint8]:

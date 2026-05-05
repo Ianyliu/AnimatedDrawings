@@ -3,16 +3,16 @@
 # LICENSE file in the root directory of this source tree.
 
 from animated_drawings import render
-from pkg_resources import resource_filename
 import os
+from pathlib import Path
 import pytest
 
 
 @pytest.mark.skipif(os.environ.get('IS_CI_RUNNER') == 'True', reason='skipping video rendering for CI/CD')
 def test_render_gif():
-    render_gif_cfg_fn = resource_filename(__name__, 'test_render_files/mvc_render_gif.yaml')
+    render_gif_cfg_fn = Path(__file__).resolve().parent / 'test_render_files/mvc_render_gif.yaml'
 
-    render.start(render_gif_cfg_fn)
+    render.start(str(render_gif_cfg_fn))
 
     assert os.path.exists('.tests/test_render_files/video.gif')
     assert os.path.getsize('.tests/test_render_files/video.gif') > 100
@@ -22,9 +22,9 @@ def test_render_gif():
 
 @pytest.mark.skipif(os.environ.get('IS_CI_RUNNER') == 'True', reason='skipping video rendering for CI/CD')
 def test_render_mp4():
-    render_mp4_cfg_fn = resource_filename(__name__, 'test_render_files/mvc_render_mp4.yaml')
+    render_mp4_cfg_fn = Path(__file__).resolve().parent / 'test_render_files/mvc_render_mp4.yaml'
 
-    render.start(render_mp4_cfg_fn)
+    render.start(str(render_mp4_cfg_fn))
 
     assert os.path.exists('.tests/test_render_files/video.mp4')
     assert os.path.getsize('.tests/test_render_files/video.mp4') > 100

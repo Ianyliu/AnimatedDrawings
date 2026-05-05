@@ -7,24 +7,26 @@ import base64
 from flask import Flask, render_template, request
 import json
 import os
+from pathlib import Path
 import sys
 import yaml
 
 global cfg_path
 global char_folder
-app = Flask(__name__, template_folder=os.path.abspath("./fixer_app/"))
+EXAMPLES_DIR = Path(__file__).resolve().parent
+app = Flask(__name__, template_folder=str(EXAMPLES_DIR / "fixer_app"))
 
 
 def load_cfg(path):
     with open(path, "r") as f:
         cfg_text = f.read()
-        cfg_yaml = yaml.load(cfg_text, Loader=yaml.Loader)
+        cfg_yaml = yaml.safe_load(cfg_text)
     return cfg_yaml
 
 
 def write_cfg(path, cfg):
     with open(path, "w") as f:
-        yaml.dump(cfg, f)
+        yaml.safe_dump(cfg, f)
 
 
 @app.route("/")
@@ -65,7 +67,7 @@ def process(request):
         joint['loc'][1] = round(joint['loc'][1])
 
     try:
-        new_cfg = yaml.dump(jsondata)
+        new_cfg = yaml.safe_dump(jsondata)
     except Exception as e:
         return None, f"Error converting submission to YAML data. Invalid format?: {e}"
 

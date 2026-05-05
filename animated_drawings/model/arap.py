@@ -69,7 +69,7 @@ class ARAP():
 
         # get barycentric coordinates of pins, and mask denoting which pins were initially outside the mesh
         pins_bc: List[Tuple[Tuple[np.int32, np.float32], Tuple[np.int32, np.float32], Tuple[np.int32, np.float32]]]
-        self.pin_mask = npt.NDArray[np.bool8]
+        self.pin_mask: npt.NDArray[np.bool_]
         pins_bc, self.pin_mask = self._xy_to_barycentric_coords(pins_xy, vertices, triangles)
 
         v_vnbr_idxs: Dict[np.int32, Set[np.int32]] = defaultdict(set)  # build a dict mapping vertex ID -> neighbor vertex IDs
@@ -209,7 +209,7 @@ class ARAP():
                                   vertices: npt.NDArray[np.float32],
                                   triangles: List[npt.NDArray[np.int32]]
                                   ) -> Tuple[List[Tuple[Tuple[np.int32, np.float32], Tuple[np.int32, np.float32], Tuple[np.int32, np.float32]]],
-                                             npt.NDArray[np.bool8]]:
+                                             npt.NDArray[np.bool_]]:
         """
         Given and array containing xy locations and the vertices & triangles making up a mesh,
         find the triangle that each points in within and return it's representation using barycentric coordinates.
@@ -263,7 +263,7 @@ class ARAP():
                 continue
 
             # grab the id of first triangle the point is in or on
-            t_idx = int(containing_t_idxs[0])
+            t_idx = int(containing_t_idxs[0, 0])
 
             vertex_ids = triangles[t_idx]                               # get ids of verts in triangle
             a_xy, b_xy, c_xy = vertices[vertex_ids]                     # get xy coords of verts
@@ -271,7 +271,7 @@ class ARAP():
             b_coords.append(list(zip(vertex_ids, uvw)))                 # append to our list  # pyright: ignore[reportGeneralTypeIssues]
             pin_mask.append(True)
 
-        return (b_coords, np.array(pin_mask, dtype=np.bool8))
+        return (b_coords, np.array(pin_mask, dtype=np.bool_))
 
     def _get_barycentric_coords(self,
                                 p: npt.NDArray[np.float32],

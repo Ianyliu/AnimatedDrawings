@@ -1,8 +1,14 @@
 # ignore auto-generated files
 **/.DS_Store
 **/__pycache__
+**/*.pyc
+.pytest_cache/
+.venv/
 **/src.egg-info
 animated_drawings.egg-info
+animateddrawings.egg-info
+*.log
+logs/
 
 # for the fixer app at examples/fixer_app
 .parcel-cache/
@@ -10,6 +16,8 @@ node_modules
 
 # ignore the .mar files
 **/*.mar
+torchserve/key_file.json
+torchserve/model-store/
 
 # ignore any vscode specific setting files
 .vscode
@@ -19,6 +27,8 @@ node_modules
 examples/garlic_out
 **/*.mp4
 **/*.gif
+examples/video_app/outputs
+examples/webcam_uploads
 
 # DO include .gifs used by the Readme
 !media/*.gif

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Animated Drawings Video Pose</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <section id="openingScreen" class="openingScreen" aria-label="Opening animation">
+      <canvas id="openingCanvas" aria-hidden="true"></canvas>
+      <div class="openingCopy">
+        <p class="eyebrow">Animated Drawings</p>
+        <h2>Motion becomes character.</h2>
+      </div>
+      <button id="skipOpening" class="skipOpening" type="button">Skip</button>
+    </section>
+    <main>
+      <section class="intro" aria-labelledby="introTitle">
+        <div class="introCopy">
+          <p class="eyebrow">Animated Drawings</p>
+          <h1 id="introTitle">Turn video motion into an animated drawing.</h1>
+          <p class="introText">
+            Record or upload motion, pair it with a bundled or custom character, and render the result locally. The app estimates joints, builds animation data, and gives you export links when it is done.
+          </p>
+          <div class="heroActions">
+            <button id="startCreating" class="primaryButton">Start creating</button>
+            <a class="secondaryLink" href="#workflow">Try bundled samples</a>
+          </div>
+          <ul class="trustList" aria-label="Upload safety">
+            <li>Files are processed locally by this app and cleaned up automatically.</li>
+            <li>Uploads are limited by type, size, duration, and dimensions.</li>
+            <li>This local build checks file structure but does not run antivirus scanning.</li>
+          </ul>
+        </div>
+        <figure class="introMedia conversionStage">
+          <div class="conversionPanel glassInput">
+            <canvas id="glassPoseCanvas" aria-hidden="true"></canvas>
+            <span class="stageLabel">Pose</span>
+          </div>
+          <div class="conversionArrow" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="conversionPanel outputPanel">
+            <img src="/demo-media/garlic.gif" alt="Example animated drawing">
+            <span class="stageLabel">Animated drawing</span>
+          </div>
+          <figcaption>Turn motion into a dancing character.</figcaption>
+        </figure>
+      </section>
+
+      <section id="workflow" class="creator" tabindex="-1" aria-label="Guided creation workflow">
+        <aside class="workflowPanel">
+          <header class="workflowHeader">
+            <p class="eyebrow">Create</p>
+            <h2>Guided workflow</h2>
+          </header>
+
+          <ol class="steps" aria-label="Workflow steps">
+            <li id="stepMotion">1. Motion</li>
+            <li id="stepDrawing">2. Drawing</li>
+            <li id="stepPreview">3. Preview</li>
+            <li id="stepRender">4. Render</li>
+            <li id="stepExport">5. Export</li>
+          </ol>
+
+          <section class="sampleStrip" aria-label="Samples">
+            <button class="sampleButton" type="button" data-sample-id="starter">
+              <span>Try sample</span>
+              <small>Dab motion + char1</small>
+            </button>
+            <button class="sampleButton" type="button" data-sample-id="wave">
+              <span>Try another</span>
+              <small>Wave motion + char2</small>
+            </button>
+          </section>
+
+          <section id="diagnosticsPanel" class="diagnosticsPanel" aria-label="Setup diagnostics" hidden></section>
+
+          <section id="motionCard" class="workflowCard">
+            <div class="cardHeader">
+              <h3>Motion</h3>
+              <span id="motionState" class="statePill">Empty</span>
+            </div>
+            <div class="fieldGrid">
+              <label>
+                Bundled motion
+                <select id="motionSelect"></select>
+              </label>
+              <button id="useMotion" type="button">Use Motion</button>
+            </div>
+            <label id="poseEstimatorWrap" hidden>
+              Pose estimator
+              <select id="poseEstimator"></select>
+            </label>
+            <div class="uploadArea">
+              <div>
+                <strong>Record or upload video</strong>
+                <p id="uploadLimits" class="hint"></p>
+              </div>
+              <video id="recordPreview" muted playsinline></video>
+              <div class="buttonRow">
+                <button id="startRecord" type="button">Record</button>
+                <button id="stopRecord" type="button" disabled>Stop</button>
+                <label class="fileButton">
+                  Upload Video
+                  <input id="videoUpload" type="file" accept="video/*">
+                </label>
+                <button id="processVideo" type="button">Estimate Pose</button>
+              </div>
+              <div id="videoFileName" class="fileName"></div>
+            </div>
+            <div class="advancedLine">
+              <label>
+                Upload BVH
+                <input id="bvhUpload" type="file" accept=".bvh">
+              </label>
+              <button id="uploadBvh" type="button">Use BVH</button>
+            </div>
+            <div id="bvhFileName" class="fileName"></div>
+          </section>
+
+          <section id="drawingCard" class="workflowCard">
+            <div class="cardHeader">
+              <h3>Drawing</h3>
+              <span id="drawingState" class="statePill">Empty</span>
+            </div>
+            <div class="fieldGrid">
+              <label>
+                Bundled character
+                <select id="characterSelect"></select>
+              </label>
+              <button id="useCharacter" type="button">Use Character</button>
+            </div>
+            <div class="advancedLine">
+              <label>
+                Upload Drawing
+                <input id="drawingUpload" type="file" accept="image/*">
+              </label>
+              <button id="uploadDrawing" type="button">Estimate Joints</button>
+            </div>
+            <div id="drawingFileName" class="fileName"></div>
+          </section>
+
+          <section id="previewCard" class="workflowCard">
+            <div class="cardHeader">
+              <h3>Preview</h3>
+              <span id="previewState" class="statePill">Empty</span>
+            </div>
+            <p class="hint">Review the source motion and drawing joints before rendering.</p>
+            <div id="qualityWarnings" class="qualityWarnings" hidden></div>
+          </section>
+
+          <section id="renderCard" class="workflowCard actions">
+            <div class="cardHeader">
+              <h3>Render</h3>
+              <span id="renderState" class="statePill">Empty</span>
+            </div>
+            <button id="renderAnimation" class="primaryButton" type="button">Render Animation</button>
+            <progress id="jobProgress" max="100" value="0" hidden></progress>
+            <div id="status" role="status" aria-live="polite"></div>
+          </section>
+
+          <section id="exportCard" class="workflowCard">
+            <div class="cardHeader">
+              <h3>Export</h3>
+              <span id="exportState" class="statePill">Empty</span>
+            </div>
+            <div class="exportLinks">
+              <a id="downloadAnimation" href="#" download hidden>Animation MP4</a>
+              <a id="downloadBvh" href="#" download hidden>Motion BVH</a>
+              <a id="downloadPose" href="#" download hidden>Pose JSON</a>
+            </div>
+            <button id="renderAgain" type="button">Render again</button>
+          </section>
+        </aside>
+
+        <section class="previewPanel" aria-label="Preview">
+          <div class="viewer">
+            <h2>Source</h2>
+            <video id="sourceVideo" controls playsinline></video>
+          </div>
+          <div class="viewer">
+            <h2>Drawing Joints</h2>
+            <img id="jointOverlay" alt="">
+          </div>
+          <div class="viewer animationViewer">
+            <h2>Animation</h2>
+            <video id="animationVideo" controls playsinline></video>
+          </div>
+          <div class="transport">
+            <button id="playBoth" type="button">Play</button>
+            <button id="pauseBoth" type="button">Pause</button>
+            <input id="timeline" type="range" min="0" max="0" step="0.01" value="0">
+          </div>
+        </section>
+      </section>
+    </main>
+    <script>
+      window.APP_MAX_SECONDS = {{ max_seconds|tojson }};
+      window.APP_SESSION_ID = {{ session_id|tojson }};
+      window.APP_CSRF_TOKEN = {{ csrf_token|tojson }};
+    </script>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>
