@@ -1,191 +1,284 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-% CSCI 1430 Written Question Template
+% CSCI 1430 Final Project Report
 %
-% This is a LaTeX document. LaTeX is a markup language for producing documents.
-% Your task is to answer the questions by filling out this document, then to
-% compile this into a PDF document.
-%
-% TO COMPILE:
-% > pdflatex thisfile.tex
-
-% If you do not have LaTeX, your options are:
-% - VSCode extension: https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop
-% - Online Tool: https://www.overleaf.com/ - most LaTeX packages are pre-installed here (e.g., \usepackage{}).
-% - Personal laptops (all common OS): http://www.latex-project.org/get/ 
-%
-% If you need help with LaTeX, please come to office hours.
-% Or, there is plenty of help online:
-% https://en.wikibooks.org/wiki/LaTeX
-%
-% Good luck!
-% The CSCI 1430 staff
-%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%
-% How to include two graphics on the same line:
-% 
-% \includegraphics[width=0.49\linewidth]{yourgraphic1.png}
-% \includegraphics[width=0.49\linewidth]{yourgraphic2.png}
-%
-% How to include equations:
-%
-% \begin{equation}
-% y = mx+c
-% \end{equation}
-% 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \documentclass[10pt,twocolumn,letterpaper]{article}
- 
+
 \usepackage{cvpr}
-\usepackage{times}
 \usepackage{epsfig}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
 \usepackage{microtype}
-% From https://ctan.org/pkg/matlab-prettifier
-\usepackage[numbered,framed]{matlab-prettifier}
 
 \frenchspacing
 
-% Include other packages here, before hyperref.
-
-% If you comment hyperref and then uncomment it, you should delete
-% egpaper.aux before re-running latex.  (Or just hit 'q' on the first latex
-% run, let it finish, and you should be clear).
 \usepackage[pagebackref=true,breaklinks=true,letterpaper=true,colorlinks,bookmarks=false]{hyperref}
 
 \cvprfinalcopy
 \def\cvprPaperID{****}
 \def\httilde{\mbox{\tt\raisebox{-.5ex}{\symbol{126}}}}
-\ifcvprfinal\pagestyle{empty}\fi
+\pagestyle{plain}
 
 \begin{document}
 
 %%%%%%%%% TITLE
-\title{CSCI 1430 Final Project Report:\\Your project title}
+\title{CSCI 1430 Final Project Report:\\Watch Me Dance: Webcam-Driven Animation for Drawn Characters}
 
-% Make this document not anonymous
 \author{
-    \emph{Team name}: Ian Liu, Chen-En Ma\\
+    \emph{Team name}: Watch Me Dance\\
+    Ian Liu, Chen-En Ma\\
     \emph{TA name:} Kamya Raman
 }
 
 \maketitle
-%\thispagestyle{empty}
+\thispagestyle{plain}
 
 %%%%%%%%% ABSTRACT
 \begin{abstract}
-This document is a template for your final project reports, presented in a conference-paper style. It is slightly more complicated LaTeX, but not much more complex than the earlier project reports.
-This document, along with your code, any supplemental material, and your 2-minute presentation, are qualitatively what determines your grade. 
+We extend Meta's Animated Drawings system from a clip-based offline animation tool into a webcam- and video-driven motion interface. The original system analyzes a static drawing, builds a 2D rig and textured mesh, and retargets an existing BVH motion clip to deform the drawing. Our contribution adds two motion sources: an offline RGB-video-to-BVH pipeline and a live webcam controller based on MediaPipe pose landmarks. The offline path estimates 13 required body landmarks, repairs and smooths unreliable tracks, converts normalized landmarks into a MediaPipe-compatible BVH hierarchy, and feeds the result into the existing retargeter. The live path bypasses file generation and directly implements the retargeter interface from a causal MediaPipe stream. We also trained an optional conditional rectified-flow landmark corrector on synthetic BVH-derived corruptions. The complete prototype supports uploaded drawings, bundled characters, uploaded or recorded motion clips, live camera control, quality reporting, and fallback behavior when the learned corrector is unavailable or unhelpful.
 \end{abstract}
-
-
-\section{Project Report Advice [Delete This Section]}
-
-\begin{enumerate}
-    \item Overriding principle: show us your effort.
-    \item If you wish us to consider any aspect of your project, it should be presented here.
-    \item Please include a problem statement, related work, your method, your results (figures! tables!), any comparison to existing techniques, and references.
-    \item If you made something work---great! If you didn't quite make it work---tell us about the problems, why you think it didn't work, and what you would do to fix it.
-    \item Length: Approximately four pages for technical description. For social impact, no more than one page total.
-    \item Please include an appendix to the report which details what each team member contributed to the project. One paragraph max each.
-    \item Any other materials should go in an appendix.
-\end{enumerate}
-
 
 %%%%%%%%% BODY TEXT
 \section{Introduction}
 
-Introduce the problem that you are trying to solve. Why is it difficult? Briefly what approach will you take? What difference would it make if it were solved?
+Traditional character animation separates drawing, rigging, motion capture, retargeting, and rendering into specialist workflows. Meta's \emph{Animated Drawings} project lowers one part of this barrier: a user can upload a humanoid drawing and animate it with a prerecorded BVH motion clip~\cite{Smith2023AnimatedDrawings}. However, the released pipeline is still clip-driven. A child or casual creator cannot simply stand in front of a webcam, wave, and see the drawing wave back.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+Our project asks whether a simple RGB camera can become the control signal for this drawing animation pipeline. This is difficult for three reasons. First, monocular human pose estimates are noisy, especially under occlusion, cropping, and fast motion. Second, MediaPipe, BVH files, and the Animated Drawings rig use different coordinate systems, joint names, depth conventions, and skeleton topologies. Third, the live version must be causal: it cannot rely on future frames to clean up the current estimate.
+
+We address these issues by treating motion estimation as an adapter around the existing renderer. The drawing analysis, mesh construction, ARAP deformation, and rendering code remain largely intact. We add a motion layer that maps RGB video or webcam frames into the retargeter contract expected by Animated Drawings. In offline mode, this layer emits standard artifacts: \texttt{pose\_sequence.json}, \texttt{pose\_overlay.mp4}, \texttt{motion.bvh}, and \texttt{motion.yaml}. In live mode, it estimates pose frame by frame and drives the character directly.
 
 \section{Related Work}
 
-Cite and discuss work that you used in your project, including any software used. Citations are written into a .bib file in BibTeX format, and can be called like this: Alpher et al.~\cite{Alpher04}. Here's a brief intro: \href{http://www.andy-roberts.net/writing/latex/bibliographies}{webpage}. \emph{Hint:} \$$>$ pdflatex \%docu, bibtex \%docu, pdflatex \%docu, pdflatex \%docu
+\paragraph{Animated drawings.}
+The base repository implements Smith et al.'s method for animating children's drawings of human figures~\cite{Smith2023AnimatedDrawings,FacebookAnimatedDrawingsRepo}. Their system detects the drawn figure, segments it, predicts a 2D skeleton, constructs a textured deformable mesh, and retargets human motion to the drawing. We keep this core design and extend the motion input stage.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Watch for hanging orphans; they make a document look ugly.
+\paragraph{Human pose estimation.}
+We initially considered OpenPose, VideoPose3D, and MocapNET. OpenPose introduced part affinity fields for real-time multi-person 2D pose association~\cite{Cao2017OpenPose}. VideoPose3D shows how temporal convolutions can lift 2D keypoints into temporally consistent 3D pose~\cite{Pavllo2019VideoPose3D}. MocapNET is especially relevant because it predicts BVH-compatible pose from 2D joints~\cite{Qammaz2019MocapNET}. For the implemented prototype, we chose MediaPipe Pose because it is lightweight, easy to run locally, and designed for real-time single-person tracking~\cite{Lugaresi2019MediaPipe,Bazarevsky2020BlazePose,MediaPipePoseDocs}. MediaPipe produces 33 normalized body landmarks; our converter uses the 13 landmarks required by the existing retarget configuration.
+
+\paragraph{Motion representation and deformation.}
+BVH is a common skeletal motion format containing a joint hierarchy and per-frame channels~\cite{BlenderBVHDocs,CMUMocap}. Animated Drawings deforms a 2D textured mesh using an as-rigid-as-possible formulation inspired by Igarashi and Igarashi~\cite{Igarashi2009ARAP}. Our work therefore sits at the boundary between camera pose estimation and graphics retargeting.
+
 
 \section{Method}
 
-Describe the problem in a compact way. What was your approach to solving it? Include diagrams to help understanding. For instance, if you used a CNN, what was the architecture? Include equations as necessary, e.g., Pythagoras' theorem (Eq.~\ref{eq:example}):
+\subsection{Original Animated Drawings Pipeline}
+
+The original pipeline has two separable stages. The first stage turns a drawing image into character assets. Given an input image $I$, the code calls TorchServe models for drawn-humanoid detection and drawn pose estimation. It crops the highest-scoring character, builds a foreground mask using adaptive thresholding, flood fill, and contour selection, and writes four main outputs: \texttt{texture.png}, \texttt{mask.png}, \texttt{joint\_overlay.png}, and \texttt{char\_cfg.yaml}. The character configuration stores a 16-joint 2D skeleton with named joints such as \texttt{root}, \texttt{torso}, \texttt{left\_elbow}, and \texttt{right\_foot}.
+
+The second stage retargets a BVH motion clip to this 2D character. Let $X_{t,j}\in\mathbb{R}^3$ be the world-space position of BVH joint $j$ at frame $t$. The original retargeter first normalizes the source skeleton: it rotates the BVH so that the up direction is $+Y$, aligns the estimated forward direction to $+X$, scales the skeleton, and offsets it to a ground plane. For each body-part group $g$, it chooses a projection plane normal $n_g$ either from a fixed frontal/sagittal rule or from PCA over the group's 3D joint trajectories. A character bone orientation is then computed from the projected BVH bone:
 \begin{equation}
-x^2 + y^2 = z^2,
-\label{eq:example}
+\alpha_{t,c} =
+\angle\left(\Pi_{g}\left(X_{t,j_d} - X_{t,j_p}\right), e_y\right),
+\label{eq:retarget-angle}
 \end{equation}
-where $x$ is the the `adjacent edge' of a right-angled triangle, $y$ is the `opposite edge' of a right-angled triangle, and $z$ is the hypotenuse.
+where $(j_p,j_d)$ are the proximal and distal BVH joints mapped to character joint $c$, $\Pi_g$ projects onto the selected 2D plane, and $e_y=(0,1)$ is the character's upright reference axis.
 
-My code snippet highlights an interesting point.
-\begin{lstlisting}[style=Matlab-editor]
-one = 1;
-two = one + one;
-if two != 2
-    disp( 'This computer is broken.' );
-end
-\end{lstlisting}
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
-
-\section{Results}
-
-Present the results of the changes. Include code snippets (just interesting things), figures (Figures \ref{fig:result1} and \ref{fig:result2}), and tables (Table \ref{tab:example}). Assess computational performance, accuracy performance, etc. Further, feel free to show screenshots, images; videos will have to be uploaded separately to Gradescope in a zip. Use whatever you need.
-
-\begin{table}
-\begin{center}
-\begin{tabular}{ l c }
-\toprule
-Method & Frobnability \\
-\midrule
-Theirs & Frumpy \\
-Yours & Frobbly \\
-Ours & Makes one's heart Frob\\
-\bottomrule
-\end{tabular}
-\end{center}
-\caption{Results. Please write an explanatory caption that makes the table/figure self-contained.}
-\label{tab:example}
-\end{table}
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+The resulting 2D rig drives a textured mesh through ARAP deformation. If $v_i$ and $v_i'$ are original and deformed mesh vertices, $E$ is the edge set, and $h_k$ are handle constraints from the skeleton pins, the deformation can be summarized as
+\begin{equation}
+\begin{aligned}
+E_{\text{arap}}(V',R)=
+&\sum_{(i,j)\in E}
+\left\|(v_i'-v_j') - R_{ij}(v_i-v_j)\right\|_2^2\\
+&+\lambda\sum_k\left\|B_k V' - h_k\right\|_2^2 .
+\end{aligned}
+\label{eq:arap}
+\end{equation}
+This objective preserves local edge shape while satisfying the rig handle locations. The renderer then draws the deformed texture with optional depth ordering from the retargeted joints.
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\linewidth]{placeholder.jpg}
-    \caption{Single-wide figure.}
-    \label{fig:result1}
+    \includegraphics[width=\linewidth,height=0.24\textheight,keepaspectratio]{figure1.png}
+    \caption{End-to-end Animated Drawings asset and rendering workflow. A static character image is localized, segmented, converted into a 2D rig and mesh, driven by a BVH motion sequence, deformed with the ARAP renderer, and composited into output animation frames.}
+    \label{fig:original-workflow}
 \end{figure}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+\subsection{MediaPipe Video-to-BVH Pipeline}
+
+Our offline extension starts from an RGB video $V=\{I_t\}_{t=1}^{T}$. MediaPipe Pose estimates normalized landmarks
+\begin{equation}
+P_{t,j}=(x_{t,j},y_{t,j},z_{t,j},s_{t,j}),
+\end{equation}
+where $s_{t,j}$ is MediaPipe visibility. Although MediaPipe provides 33 landmarks, our converter keeps the 13 required body landmarks: nose, shoulders, elbows, wrists, hips, knees, and ankles.
+
+Low-confidence landmarks are repaired before BVH conversion. For each landmark coordinate, frames with $s_{t,j}<\tau$ are linearly interpolated from visible frames when possible. The sequence is then smoothed by a centered moving average:
+\begin{equation}
+\bar{p}_{t,j}=\frac{1}{|W_t|}\sum_{u\in W_t}\tilde{p}_{u,j}.
+\label{eq:smoothing}
+\end{equation}
+The postprocessor also checks for likely left-right swaps, sudden hip-center jumps, and foot-contact jitter. If the hip center
+\begin{equation}
+c_t=\frac{1}{2}\left(\bar{p}_{t,\text{left hip}}+\bar{p}_{t,\text{right hip}}\right)
+\end{equation}
+moves by more than a threshold, subsequent frames are shifted back toward the previous root trajectory. These operations produce a quality report with detection coverage, repaired landmark ratio, left-right corrections, root-jump corrections, and foot stabilizations.
+
+The BVH converter constructs a compact skeleton with root \texttt{Hip}. For each frame, it defines the image-space hip center $h_t$ and maps landmark $j$ to a BVH-like coordinate
+\begin{equation}
+Q_{t,j} =
+\gamma
+\begin{bmatrix}
+x_{t,j}-x_{t,h}\\
+0\\
+y_{t,h}-y_{t,j}
+\end{bmatrix},
+\label{eq:landmark-to-bvh}
+\end{equation}
+with scale $\gamma=1000$. This deliberately flattens the body into a frontal plane because the downstream drawing system is primarily 2D. For each controlled BVH bone $b=(j_p,j_d)$ with rest vector $r_b$, the global yaw angle is
+\begin{equation}
+\theta_{t,b} =
+-\operatorname{atan2}
+\left(
+\det(r_b^{xz}, u_{t,b}^{xz}),
+\left\langle r_b^{xz},u_{t,b}^{xz}\right\rangle
+\right),
+\label{eq:yaw}
+\end{equation}
+where $u_{t,b}=Q_{t,j_d}-Q_{t,j_p}$. The local rotation written to BVH is the parent-relative difference:
+\begin{equation}
+\phi_{t,b}=\operatorname{wrap}_{[-180,180]}\left(\theta_{t,b}-\theta_{t,\mathrm{parent}(b)}\right).
+\label{eq:local-rotation}
+\end{equation}
+The converter writes root translation plus \texttt{Zrotation}, \texttt{Xrotation}, and \texttt{Yrotation} channels for the configured joints. The generated \texttt{motion.yaml} points Animated Drawings to this BVH and selects the MediaPipe retarget configuration.
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=0.4\linewidth]{placeholder.jpg}
-    \includegraphics[width=0.4\linewidth]{placeholder.jpg}
-    \caption{Double-wide figure. \emph{Left:} My result was spectacular. \emph{Right:} Curious.}
-    \label{fig:result2}
+    \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]{figure2.png}
+    \caption{Offline MediaPipe-to-BVH motion adapter used in our extension. RGB video landmarks are filtered by visibility, temporally repaired and smoothed, mapped into a flattened hip-centered BVH coordinate frame, and packaged as a motion configuration consumed by the Animated Drawings retargeter.}
+    \label{fig:mediapipe-bvh}
 \end{figure*}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+\subsection{Live Webcam Retargeting}
 
-%-------------------------------------------------------------------------
+The live webcam mode cannot wait for a full video or write a BVH file each frame. Instead, \texttt{LivePoseRetargeter} implements the subset of the original \texttt{Retargeter} API consumed by \texttt{AnimatedDrawing.update()}: it exposes \texttt{bvh\_joint\_names} and returns orientations, depths, and root position for the current time.
+
+For each webcam frame, \texttt{LiveMediaPipePoseEstimator} produces a \texttt{PoseFrame}. A causal smoother keeps the last good value for invisible landmarks and applies exponential moving average smoothing:
+\begin{equation}
+\hat{p}_{t,j}=
+\begin{cases}
+\beta p_{t,j}+(1-\beta)\hat{p}_{t-1,j}, & s_{t,j}\ge \tau,\\
+\hat{p}_{t-1,j}, & s_{t,j}<\tau.
+\end{cases}
+\label{eq:ema}
+\end{equation}
+The live point conversion uses $(x,1-y,z)$ so that image coordinates align with the character's 2D frame. The live retargeter computes the same character joint orientations as Eq.~\ref{eq:retarget-angle}, with optional root modes: \texttt{locked}, which holds the character at its start location, or \texttt{hip}, which moves the character by the hip-center displacement after a reference frame.
+
+\subsection{Landmark-Flow Corrector}
+
+We also explored a learned temporal postprocessor for unreliable landmarks. The model is a conditional rectified-flow network over 31-frame landmark windows, following the idea of learning a velocity field between paired source and target samples~\cite{Liu2022RectifiedFlow}. Training data is generated from BVH files by forward kinematics, random orthographic projection, and synthetic corruption. Each clean clip is $y\in\mathbb{R}^{T\times J\times2}$ with $T=31$ and $J=13$. The condition is
+\begin{equation}
+c=\left[x_{\mathrm{corrupt}},\,s,\,m\right],
+\end{equation}
+where $m_{t,j}=1$ marks corrupted or low-confidence landmarks.
+
+For $t_f\sim U(0,1)$, the rectified-flow state is a straight-line interpolation between corrupt and clean coordinates:
+\begin{equation}
+y_{t_f}=(1-t_f)x_{\mathrm{corrupt}}+t_f y.
+\end{equation}
+The target velocity is $u=y-x_{\mathrm{corrupt}}$. A temporal convolutional model $f_\theta(y_{t_f},c,t_f)$ is trained with masked SmoothL1 reconstruction plus a small temporal velocity-smoothness penalty:
+\begin{equation}
+\begin{aligned}
+\mathcal{L}(\theta)=
+&\frac{\sum_{t,j}m_{t,j}\rho\left(f_\theta(y_{t_f},c,t_f)_{t,j}-u_{t,j}\right)}
+{\sum_{t,j}m_{t,j}+\epsilon}\\
+&+\lambda_s\frac{1}{T-1}\sum_{t=1}^{T-1}
+\left\|f_{\theta,t+1}-f_{\theta,t}\right\|_1 .
+\end{aligned}
+\label{eq:flow-loss}
+\end{equation}
+At inference, Euler integration starts from the corrupt landmarks and applies $K=8$ velocity steps:
+\begin{equation}
+\hat{y}^{k+1}=\hat{y}^{k}+\frac{1}{K}f_\theta(\hat{y}^{k},c,k/K).
+\end{equation}
+The runtime corrector replaces only landmarks below the visibility threshold and preserves MediaPipe's $z$ and visibility values. If the checkpoint is absent or fails to load, the pipeline falls back to the rule-based postprocessor.
+
+\section{Results}
+
+\subsection{Implemented System}
+
+The repository now contains a complete motion adapter around Animated Drawings. The offline command \texttt{examples/video\_to\_motion.py} converts a short video into pose JSON, overlay video, BVH, and motion config files. The web prototype under \texttt{examples/video\_app} accepts bundled characters, uploaded drawings, uploaded BVH files, and uploaded videos; it scopes jobs by session, reports progress, and returns quality metrics. The live command \texttt{examples/webcam\_to\_animation.py} opens a webcam dashboard, estimates MediaPipe pose frame by frame, optionally applies landmark-flow correction, smooths the stream causally, and renders the animated drawing next to the camera overlay.
+
+The code submission corresponding to this report is the repository itself. The main project-specific implementation is concentrated in the video-pose package, the video-app example, the two motion demo scripts, and the landmark-flow training package. The tests listed in Table~\ref{tab:system} are intended to make the code component reviewable independently from the poster and report.
+
+\begin{table}[t]
+\begin{center}
+\scriptsize
+\begin{tabular}{lccc}
+\toprule
+Component & Unit & Status & Evidence \\
+\midrule
+Pose JSON & file & works & tests \\
+MediaPipe BVH & file & works & BVH load \\
+Motion YAML & file & works & render config \\
+Offline quality report & metrics & works & tests \\
+Live retargeter & API & works & tests \\
+Web upload flow & UI/API & works & tests \\
+Landmark flow & optional & mixed & Table~\ref{tab:flow-results} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\caption{Implemented project components. ``Tests'' refers to the repository unit tests covering video pose conversion, live retargeting, dashboard behavior, and web endpoints.}
+\label{tab:system}
+\end{table}
+
+\IfFileExists{figure3.png}{
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth,height=0.24\textheight,keepaspectratio]{figure3.png}
+    \caption{Qualitative retargeting examples from the implemented system. Each example compares the source pose signal, the intermediate skeleton or BVH representation, and the resulting 2D animated drawing to show how webcam or uploaded-video motion is transferred to the character.}
+    \label{fig:qualitative}
+\end{figure}
+}{}
+
+\subsection{Landmark Correction Evaluation}
+
+The learned landmark-flow corrector was trained for 100 epochs with hidden size 128, dropout 0.1, AdamW, 31-frame windows, and 13 landmarks. On the synthetic BVH-derived test split, it did not meet our original acceptance target of beating linear interpolation by 10\% in masked L1. It did, however, reduce RMSE on the overall set and on harder long-span and whole-limb corruptions. This suggests that the model sometimes reduces large errors but is not yet calibrated enough to outperform interpolation on median-like metrics or PCK.
+
+\begin{table}[t]
+\begin{center}
+\scriptsize
+\begin{tabular}{llccc}
+\toprule
+Subset & Method & L1 $\downarrow$ & RMSE $\downarrow$ & PCK $\uparrow$ \\
+\midrule
+Overall & Flow & 0.0155 & 0.0148 & 0.852 \\
+Overall & Interp. & \textbf{0.0131} & 0.0161 & \textbf{0.937} \\
+\midrule
+Long spans & Flow & 0.0187 & \textbf{0.0176} & 0.764 \\
+Long spans & Interp. & \textbf{0.0177} & 0.0238 & \textbf{0.856} \\
+\midrule
+Whole limb & Flow & 0.0181 & \textbf{0.0170} & 0.784 \\
+Whole limb & Interp. & \textbf{0.0160} & 0.0201 & \textbf{0.892} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\caption{Landmark-flow test metrics from \texttt{outputs/landmark\_flow/metadata.json}. Lower L1/RMSE is better; higher PCK@0.02 is better. The model improves RMSE in harder buckets but loses to interpolation on L1 and PCK.}
+\label{tab:flow-results}
+\end{table}
+
 \subsection{Technical Discussion}
 
-What about your method raises interesting questions? Are there any trade-offs? What is the right way to think about the changes that you made?
+The main technical lesson is that file compatibility is not the same as motion compatibility. The BVH converter can produce syntactically valid files, but convincing motion depends on coordinate choices, root behavior, joint semantics, and smoothing. A direct 2D-to-BVH conversion is adequate for frontal gestures such as waving, arm raises, and simple stepping, but it cannot recover true out-of-plane rotation from monocular landmarks. MediaPipe's $z$ values are useful as relative cues but are not treated as metric 3D reconstruction in our offline BVH writer.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+The live retargeter is often visually more stable than the offline BVH path for immediate interaction because it avoids quantizing motion into a simplified BVH hierarchy. The tradeoff is that live control is less reusable: a saved BVH can be replayed, inspected, and rendered with different characters, while live retargeting is an ephemeral stream.
 
-%------------------------------------------------------------------------
+The learned corrector also clarified the strength of simple baselines. Linear interpolation is hard to beat when corruptions are short and the underlying motion is smooth. The flow model's lower RMSE on long and whole-limb corruptions indicates some value on large failures, but its worse PCK means it often misses the tight 0.02 normalized-coordinate threshold. A practical next version should train an interpolation-residual model or blend between interpolation and flow based on corruption type.
+
+\subsection{Social Impact}
+
+This project can make animation more accessible to students, hobbyists, and children by turning body movement into an immediate creative input. That democratization is valuable, but it is not impact-free. Easier animation tools may increase the volume of low-cost animated content and could make some pose-based prototyping work less scarce for professional animators. We view the system as a sketching and educational tool rather than a replacement for professional animation judgment, but deployment should avoid implying that automated webcam retargeting substitutes for the artistic labor of rigging, timing, acting, and polish.
+
+Because the interface can use live or recorded video, privacy is the highest-risk issue, especially for younger users. Webcam-driven tools should make local processing clear, avoid unnecessary retention of video, and communicate when camera data leaves the machine. If the system is used by minors, it should require parent or guardian consent, avoid storing identifiable clips by default, and never use a user's video or pose traces for further training without explicit opt-in. Even pose landmarks can be sensitive behavioral data, so exported overlays, pose JSON, and BVH files should be treated as user data rather than harmless metadata.
+
+There is also an accessibility and bias tradeoff. The current interaction assumes a webcam, sufficient physical space, and the ability to make large, camera-visible body movements. People with limited mobility, atypical movement patterns, different body proportions, loose clothing, low lighting, or lower-quality cameras may receive worse pose estimates and less recognizable animations. The system should therefore expose confidence and fallback behavior rather than pretending every body and environment is tracked equally well. A more inclusive version would support prerecorded motion clips, manual pose editing, seated or upper-body modes, and examples that show a wider range of bodies and movement styles.
+
+Finally, although our prototype is not a conversational companion, self-created animated characters can still invite attachment, particularly for children. The tool should be framed as a creative animation workspace, not as a synthetic friend or emotionally responsive partner. If future versions add sharing, character generation, or dialogue, they should include age-appropriate guardrails and avoid design patterns that encourage dependency or parasocial substitution.
+
 \section{Conclusion}
 
-What you did, why it matters, what the impact is going forward.
+We built a working webcam- and video-driven extension to Animated Drawings. The final system preserves the original drawing analysis and ARAP rendering pipeline while adding MediaPipe motion estimation, rule-based temporal repair, BVH conversion, live retargeting, a web interface, and an optional learned landmark corrector. The most reliable contribution is the engineering bridge from camera/video pose to the Animated Drawings retargeter. The landmark-flow model is useful as an experiment and partial hard-case improvement, but it should remain optional until it consistently beats interpolation on the primary metrics.
 
 {\small
 \bibliographystyle{plain}
@@ -196,12 +289,9 @@ What you did, why it matters, what the impact is going forward.
 
 \subsection*{Team contributions}
 
-Please describe in one paragraph per team member what each of you contributed to the project.
 \begin{description}
-\item[Person 1 (put your real names)] Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. 
-\item[Person 2 (put your real names)] Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
-\item [Person 3 (put your real names)] Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. 
-\item [Person 4 (put your real names)] Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+\item[Ian Liu] Integrated externally generated motion into the Animated Drawings rendering workflow, worked on retargeting compatibility between MediaPipe-style BVH files and drawing rigs, configured local and server-side rendering workflows, and implemented or tested the interactive webcam/web application pieces that connect drawings, motion sources, and rendered output.
+\item[Chen-En Ma] Investigated RGB-video-to-motion pipelines, tested 2D pose estimation options including OpenPose and MediaPipe, implemented the MediaPipe pose extraction and video-to-BVH conversion path, and trained/evaluated the landmark-flow correction model for low-confidence landmark repair.
 \end{description}
 
 \end{document}
