@@ -39,22 +39,22 @@
 
 %%%%%%%%% ABSTRACT
 \begin{abstract}
-We extend Meta's Animated Drawings system from a clip-based offline animation tool into a webcam- and video-driven motion interface. The original system analyzes a static drawing, builds a 2D rig and textured mesh, and retargets an existing BVH motion clip to deform the drawing. Our contribution adds two motion sources: an offline RGB-video-to-BVH pipeline and a live webcam controller based on MediaPipe pose landmarks. The offline path estimates 13 required body landmarks, repairs missing tracks with non-learned temporal repair and rule-based smoothing, converts normalized landmarks into a MediaPipe-compatible BVH hierarchy, and feeds the result into the existing retargeter. The live path bypasses file generation and directly implements the retargeter interface from a causal MediaPipe stream. We also evaluated a conditional rectified-flow landmark corrector on synthetic BVH-derived corruptions, but leave it disabled in the final system because it does not improve the primary L1 and PCK metrics. The complete prototype supports uploaded drawings, bundled characters, uploaded or recorded motion clips, live camera control, quality reporting, and robust fallback behavior.
+We extend Meta's Animated Drawings system from an offline, clip-driven animation tool into an interface that can be controlled by uploaded video or a live webcam. The original system analyzes a static drawing, builds a 2D rig and textured mesh, and retargets a prerecorded BVH motion clip to deform the drawing. Our contribution adds two new motion sources: an RGB-video-to-BVH adapter and a real-time webcam controller based on MediaPipe pose landmarks. The offline path estimates the body landmarks required by Animated Drawings, repairs unreliable tracks with temporal interpolation and rule-based smoothing, and converts the result into a BVH motion sequence that can drive the existing renderer. The live path skips file generation and maps a causal MediaPipe stream directly into character pose updates. We also evaluated a conditional rectified-flow landmark corrector on synthetic BVH-derived corruptions, but leave it disabled in the final system because it does not improve the primary L1 and PCK metrics. The complete prototype supports uploaded drawings, bundled characters, uploaded or recorded motion clips, live camera control, quality reporting, and fallback behavior when pose estimates are unreliable.
 \end{abstract}
 
 %%%%%%%%% BODY TEXT
 \section{Introduction}
 
-Traditional character animation separates drawing, rigging, motion capture, retargeting, and rendering into specialist workflows. Meta's \emph{Animated Drawings} project lowers one part of this barrier: a user can upload a humanoid drawing and animate it with a prerecorded BVH motion clip~\cite{Smith2023AnimatedDrawings}. However, the released pipeline is still clip-driven. A child or casual creator cannot simply stand in front of a webcam, wave, and see the drawing wave back.
+Traditional character animation separates drawing, rigging, motion capture, retargeting, and rendering into specialist workflows. Meta's \emph{Animated Drawings} project lowers one part of this barrier: a user can upload a humanoid drawing and animate it with a prerecorded BVH motion clip~\cite{Smith2023AnimatedDrawings}. However, the released pipeline still depends on existing motion clips. A child or casual creator cannot simply stand in front of a webcam, wave, and see the drawing wave back.
 
 Our project asks whether a simple RGB camera can become the control signal for this drawing animation pipeline. This is difficult for three reasons. First, monocular human pose estimates are noisy, especially under occlusion, cropping, and fast motion. Second, MediaPipe, BVH files, and the Animated Drawings rig use different coordinate systems, joint names, depth conventions, and skeleton topologies. Third, the live version must be causal: it cannot rely on future frames to clean up the current estimate.
 
-We address these issues by treating motion estimation as an adapter around the existing renderer. The drawing analysis, mesh construction, ARAP deformation, and rendering code remain largely intact. We add a motion layer that maps RGB video or webcam frames into the retargeter contract expected by Animated Drawings. In offline mode, this layer converts a recorded video into reusable character motion; in live mode, it estimates pose frame by frame and drives the character directly.
+We address these issues by treating motion estimation as an adapter around the existing renderer. The drawing analysis, mesh construction, and rendering stages remain largely intact. We add a motion layer that maps RGB video or webcam frames into the joint orientations expected by Animated Drawings. In offline mode, this layer converts a recorded video into reusable character motion. In live mode, it estimates pose frame by frame and drives the character directly.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=\textwidth,height=0.25\textheight,keepaspectratio]{figure1.png}
-    \caption{End-to-end Animated Drawings asset and rendering workflow. A static character image is localized, segmented, converted into a 2D rig and mesh, driven by a BVH motion sequence, deformed with the ARAP renderer, and composited into output animation frames.}
+    \caption{End-to-end Animated Drawings asset and rendering workflow. A static character image is localized, segmented, converted into a 2D rig and mesh, driven by a BVH motion sequence, deformed, and composited into output animation frames.}
     \label{fig:original-workflow}
 \end{figure*}
 
@@ -73,87 +73,32 @@ BVH is a common skeletal motion format containing a joint hierarchy and per-fram
 
 \subsection{Original Animated Drawings Pipeline}
 
-The original pipeline has two separable stages. The first stage turns a drawing image into character assets. Given an input image $I$, the code calls TorchServe models for drawn-humanoid detection and drawn pose estimation. It crops the highest-scoring character, builds a foreground mask using adaptive thresholding, flood fill, and contour selection, and writes four main outputs: \texttt{texture.png}, \texttt{mask.png}, \texttt{joint\_overlay.png}, and \texttt{char\_cfg.yaml}. The character configuration stores a 16-joint 2D skeleton with named joints such as \texttt{root}, \texttt{torso}, \texttt{left\_elbow}, and \texttt{right\_foot}.
+The original pipeline has two separable stages. The first turns a drawing image into character assets: a foreground texture, a mask, a visual skeleton overlay, and a 2D rig. The system detects the drawn humanoid, crops the main figure, segments it from the background, and predicts a 16-joint skeleton. These assets define the drawing that the renderer later deforms.
 
-The second stage retargets a BVH motion clip to this 2D character. Let $X_{t,j}\in\mathbb{R}^3$ be the world-space position of BVH joint $j$ at frame $t$. The original retargeter first normalizes the source skeleton: it rotates the BVH so that the up direction is $+Y$, aligns the estimated forward direction to $+X$, scales the skeleton, and offsets it to a ground plane. For each body-part group $g$, it chooses a projection plane normal $n_g$ either from a fixed frontal/sagittal rule or from PCA over the group's 3D joint trajectories. A character bone orientation is then computed from the projected BVH bone:
-\begin{equation}
-\alpha_{t,c} =
-\angle\left(\Pi_{g}\left(X_{t,j_d} - X_{t,j_p}\right), e_y\right),
-\label{eq:retarget-angle}
-\end{equation}
-where $(j_p,j_d)$ are the proximal and distal BVH joints mapped to character joint $c$, $\Pi_g$ projects onto the selected 2D plane, and $e_y=(0,1)$ is the character's upright reference axis.
+The second stage retargets a BVH motion clip to this 2D character. The retargeter normalizes the source skeleton, chooses projection planes for body-part groups, and converts projected BVH bones into 2D character bone orientations. Conceptually, each controlled character bone is oriented by comparing the projected source bone direction against the character's upright reference axis.
 
-The resulting 2D rig drives a textured mesh through ARAP deformation. If $v_i$ and $v_i'$ are original and deformed mesh vertices, $E$ is the edge set, and $h_k$ are handle constraints from the skeleton pins, the deformation can be summarized as
-\begin{equation}
-\begin{aligned}
-E_{\text{arap}}(V',R)=
-&\sum_{(i,j)\in E}
-\left\|(v_i'-v_j') - R_{ij}(v_i-v_j)\right\|_2^2\\
-&+\lambda\sum_k\left\|B_k V' - h_k\right\|_2^2 .
-\end{aligned}
-\label{eq:arap}
-\end{equation}
-This objective preserves local edge shape while satisfying the rig handle locations. The renderer then draws the deformed texture with optional depth ordering from the retargeted joints.
+The resulting 2D rig drives a textured mesh through ARAP deformation, which preserves local shape while satisfying the skeleton handle constraints. The renderer then draws the deformed texture with optional depth ordering from the retargeted joints. Our project leaves this asset and rendering pipeline intact and changes only how motion reaches it.
 
 \subsection{MediaPipe Video-to-BVH Pipeline}
 
-Our offline extension starts from an RGB video $V=\{I_t\}_{t=1}^{T}$. MediaPipe Pose estimates normalized landmarks
-\begin{equation}
-P_{t,j}=(x_{t,j},y_{t,j},z_{t,j},s_{t,j}),
-\end{equation}
-where $s_{t,j}$ is MediaPipe visibility. Although MediaPipe provides 33 landmarks, our converter keeps the 13 required body landmarks: nose, shoulders, elbows, wrists, hips, knees, and ankles.
+Our offline extension starts from an RGB video and estimates MediaPipe Pose landmarks for each frame. Each landmark contains normalized image coordinates, relative depth, and a visibility score. Although MediaPipe provides 33 landmarks, our converter keeps the body points required by the drawing retargeter: nose, shoulders, elbows, wrists, hips, knees, and ankles.
 
-Low-confidence landmarks are repaired before BVH conversion. For each landmark coordinate, frames with $s_{t,j}<\tau$ are linearly interpolated from visible frames when possible. The sequence is then smoothed by a centered moving average:
-\begin{equation}
-\bar{p}_{t,j}=\frac{1}{|W_t|}\sum_{u\in W_t}\tilde{p}_{u,j}.
-\label{eq:smoothing}
-\end{equation}
-The postprocessor also checks for likely left-right swaps, sudden hip-center jumps, and foot-contact jitter. If the hip center
-\begin{equation}
-c_t=\frac{1}{2}\left(\bar{p}_{t,\text{left hip}}+\bar{p}_{t,\text{right hip}}\right)
-\end{equation}
-moves by more than a threshold, subsequent frames are shifted back toward the previous root trajectory. These operations produce a quality report with detection coverage, repaired landmark ratio, left-right corrections, root-jump corrections, and foot stabilizations.
+Low-confidence landmarks are repaired before BVH conversion. For each coordinate, frames below a visibility threshold are linearly interpolated from nearby visible frames when possible, then smoothed over a short temporal window. The postprocessor also checks for likely left-right swaps, sudden jumps in the hip center, and foot-contact jitter. When the hip center moves implausibly between adjacent frames, later frames are shifted back toward the previous root trajectory. These operations produce a quality report covering a variety of metrics such as detection coverage and foot stabilizations.
 
-The BVH converter constructs a compact skeleton with root \texttt{Hip}. For each frame, it defines the image-space hip center $h_t$ and maps landmark $j$ to a BVH-like coordinate
-\begin{equation}
-Q_{t,j} =
-\gamma
-\begin{bmatrix}
-x_{t,j}-x_{t,h}\\
-0\\
-y_{t,h}-y_{t,j}
-\end{bmatrix},
-\label{eq:landmark-to-bvh}
-\end{equation}
-with scale $\gamma=1000$. This deliberately flattens the body into a frontal plane because the downstream drawing system is primarily 2D. For each controlled BVH bone $b=(j_p,j_d)$ with rest vector $r_b$, the global yaw angle is
-\begin{equation}
-\theta_{t,b} =
--\operatorname{atan2}
-\left(
-\det(r_b^{xz}, u_{t,b}^{xz}),
-\left\langle r_b^{xz},u_{t,b}^{xz}\right\rangle
-\right),
-\label{eq:yaw}
-\end{equation}
-where $u_{t,b}=Q_{t,j_d}-Q_{t,j_p}$. The local rotation written to BVH is the parent-relative difference:
-\begin{equation}
-\phi_{t,b}=\operatorname{wrap}_{[-180,180]}\left(\theta_{t,b}-\theta_{t,\mathrm{parent}(b)}\right).
-\label{eq:local-rotation}
-\end{equation}
-The converter writes root translation plus \texttt{Zrotation}, \texttt{Xrotation}, and \texttt{Yrotation} channels for the configured joints. The generated \texttt{motion.yaml} points Animated Drawings to this BVH and selects the MediaPipe retarget configuration.
+The BVH converter constructs a compact skeleton rooted at the hips. For each frame, it recenters the landmarks at the image-space hip center, scales them into BVH units, and flattens them into a frontal plane by treating horizontal image displacement as side-to-side motion and vertical image displacement as up-down body motion. This deliberate flattening matches the primarily 2D drawing system. Bone directions in this coordinate frame are converted into parent-relative joint rotations and written as a standard BVH motion sequence. The output can then be used anywhere Animated Drawings expects a motion clip.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]{figure2.png}
-    \caption{Offline MediaPipe-to-BVH motion adapter used in our extension. RGB video landmarks are filtered by visibility, temporally repaired and smoothed, mapped into a flattened hip-centered BVH coordinate frame, and packaged as a motion configuration consumed by the Animated Drawings retargeter.}
+    \caption{Offline MediaPipe-to-BVH motion adapter used in our extension. RGB video landmarks are filtered by visibility, temporally repaired and smoothed, mapped into a flattened hip-centered coordinate frame, and packaged as reusable character motion.}
     \label{fig:mediapipe-bvh}
 \end{figure*}
 
 \subsection{Live Webcam Retargeting}
 
-The live webcam mode cannot wait for a full video or write a BVH file each frame. Instead, \texttt{LivePoseRetargeter} implements the subset of the original \texttt{Retargeter} API consumed by \texttt{AnimatedDrawing.update()}: it exposes \texttt{bvh\_joint\_names} and returns orientations, depths, and root position for the current time.
+The live webcam mode cannot wait for a full video or write a BVH file at each frame. Instead, it replaces the file-based motion clip with a streaming controller that returns the current joint orientations, depth ordering, and root position directly to the renderer.
 
-For each webcam frame, \texttt{LiveMediaPipePoseEstimator} produces a \texttt{PoseFrame}. A causal smoother keeps the last good value for invisible landmarks and applies exponential moving average smoothing:
+For each webcam frame, MediaPipe estimates the current pose. A causal smoother keeps the last good value for invisible landmarks and applies exponential moving average smoothing:
 \begin{equation}
 \hat{p}_{t,j}=
 \begin{cases}
@@ -162,7 +107,7 @@ For each webcam frame, \texttt{LiveMediaPipePoseEstimator} produces a \texttt{Po
 \end{cases}
 \label{eq:ema}
 \end{equation}
-The live point conversion uses $(x,1-y,z)$ so that image coordinates align with the character's 2D frame. The live retargeter computes the same character joint orientations as Eq.~\ref{eq:retarget-angle}, with optional root modes: \texttt{locked}, which holds the character at its start location, or \texttt{hip}, which moves the character by the hip-center displacement after a reference frame.
+The live point conversion uses $(x,1-y,z)$ so that image coordinates align with the character's 2D frame. The same projected-bone orientation logic is then applied frame by frame. The character can either stay anchored in place or move with the user's hip displacement after an initial reference pose.
 
 \subsection{Landmark-Flow Ablation}
 
@@ -191,37 +136,37 @@ At inference, Euler integration starts from the corrupt landmarks and applies $K
 \begin{equation}
 \hat{y}^{k+1}=\hat{y}^{k}+\frac{1}{K}f_\theta(\hat{y}^{k},c,k/K).
 \end{equation}
-At runtime, the production pipeline uses non-learned temporal repair and rule-based postprocessing. The flow corrector remains an experimental ablation because its test results did not justify replacing the simpler baseline.
+In the final system, the active repair path remains the non-learned temporal baseline. The flow corrector is retained as an ablation because its test results did not justify replacing the simpler method.
 
 \section{Results}
 
 \subsection{Implemented System}
 
-The repository now contains a complete motion adapter around Animated Drawings. The offline command \texttt{examples/video\_to\_motion.py} converts a short video into pose JSON, overlay video, BVH, and motion config files. The web prototype under \texttt{examples/video\_app} accepts bundled characters, uploaded drawings, uploaded BVH files, and uploaded videos; it scopes jobs by session, reports progress, and returns quality metrics. The live command \texttt{examples/webcam\_to\_animation.py} opens a webcam dashboard, estimates MediaPipe pose frame by frame, smooths the stream causally, and renders the animated drawing next to the camera overlay.
+The completed prototype turns Animated Drawings into a camera- and video-driven animation system. In offline use, a short video is converted into pose tracks, a visual pose overlay, a BVH motion clip, and quality metrics. In the web interface, users can choose bundled characters, upload their own drawings, upload existing motion clips, or generate new motion from video. In live use, the system estimates MediaPipe pose frame by frame and renders the driven drawing beside the camera view.
 
-The code submission corresponding to this report is the repository itself. The main project-specific implementation is concentrated in the video-pose package, the video-app example, the two motion demo scripts, and the landmark-flow training package. The tests listed in Table~\ref{tab:system} are intended to make the code component reviewable independently from the poster and report.
+Table~\ref{tab:system} summarizes the main capabilities of the implemented system. The goal of these checks is not only to confirm that files can be produced, but also to show that the motion adapter, live controller, upload flow, and repair logic work as coherent user-facing features.
 
 \begin{table}[t]
 \begin{center}
 \scriptsize
 \resizebox{\linewidth}{!}{%
-\begin{tabular}{lccc}
+\begin{tabular}{lcc}
 \toprule
-Component & Unit & Status & Evidence \\
+Capability & Output & Status \\
 \midrule
-Pose JSON & file & works & tests \\
-MediaPipe BVH & file & works & BVH load \\
-Motion YAML & file & works & render config \\
-Offline quality report & metrics & works & tests \\
-Live retargeter & API & works & tests \\
-Web upload flow & UI/API & works & tests \\
-Temporal repair & metrics & works & tests \\
-Flow ablation & exp. & worse L1/PCK & Table~\ref{tab:flow-results} \\
+Pose extraction & landmark tracks & works \\
+Video motion export & BVH clip & works \\
+Render setup & motion metadata & works \\
+Quality reporting & diagnostics & works \\
+Live control & webcam motion & works \\
+Web upload flow & interactive UI & works \\
+Temporal repair & cleaner tracks & works \\
+Flow ablation & metrics & \shortstack{comparable L1/PCK,\\ improved RMSE} \\
 \bottomrule
 \end{tabular}
 }
 \end{center}
-\caption{Implemented project components. ``Tests'' refers to the repository unit tests covering video pose conversion, live retargeting, dashboard behavior, and web endpoints.}
+\caption{Implemented system capabilities. The flow ablation result is reported in detail in Table~\ref{tab:flow-results}.}
 \label{tab:system}
 \end{table}
 
@@ -236,7 +181,7 @@ Flow ablation & exp. & worse L1/PCK & Table~\ref{tab:flow-results} \\
 
 \subsection{Landmark Correction Evaluation}
 
-The learned landmark-flow corrector was trained for 100 epochs with hidden size 128, dropout 0.1, AdamW, 31-frame windows, and 13 landmarks. On the synthetic BVH-derived test split, it did not meet our original acceptance target of improving masked L1 by 10\% over the repair baseline. The final pipeline therefore uses the non-learned repair path. Table~\ref{tab:flow-results} reports the flow model's standalone error profile: its RMSE is reasonable on harder long-span and whole-limb corruptions, but its L1 and PCK are not strong enough to justify enabling it in the deployed system.
+The learned landmark-flow corrector was trained for 100 epochs with hidden size 128, dropout 0.1, AdamW, 31-frame windows, and 13 landmarks. On the synthetic BVH-derived test split, it did not meet our acceptance target of improving masked L1 by 10\% over the repair baseline. The final system therefore uses the non-learned repair path. Table~\ref{tab:flow-results} reports the flow model's standalone error profile: its RMSE is reasonable on harder long-span and whole-limb corruptions, but its L1 and PCK are not strong enough to justify enabling it by default.
 
 \begin{table}[t]
 \begin{center}
@@ -251,21 +196,21 @@ Whole limb & 0.0181 & 0.0170 & 0.784 \\
 \bottomrule
 \end{tabular}
 \end{center}
-\caption{Landmark-flow ablation metrics from \texttt{outputs/landmark\_flow/metadata.json}. Lower L1/RMSE is better; higher PCK@0.02 is better. These results characterize the learned repair experiment; the final system keeps the non-learned repair path because the learned model did not meet the acceptance target.}
+\caption{Landmark-flow ablation metrics. Lower L1/RMSE is better; higher PCK@0.02 is better. These results characterize the learned repair experiment; the final system keeps the non-learned repair path because the learned model did not meet the acceptance target.}
 \label{tab:flow-results}
 \end{table}
 
 \subsection{Technical Discussion}
 
-One main technical lesson is that file compatibility is not the same as motion compatibility. The BVH converter can produce syntactically valid files, but convincing motion depends on many other factors such as coordinate choices, joint semantics, and smoothing. A direct 2D-to-BVH conversion is adequate for frontal gestures such as waving, arm raises, and simple stepping, but it cannot recover true out-of-plane rotation from monocular landmarks. MediaPipe's $z$ values are useful as relative cues but are not treated as metric 3D reconstruction in our offline BVH writer.
+One main technical lesson is that format compatibility is not the same as motion quality. A BVH file may load successfully while still producing awkward animation if its coordinate frame, joint semantics, or temporal smoothing do not match the drawing rig. Our 2D-to-BVH conversion works best for frontal gestures such as waving, arm raises, and simple stepping, but it cannot recover true out-of-plane rotation from monocular landmarks. MediaPipe's $z$ values are useful as relative cues, but we do not treat them as metric 3D reconstruction.
 
-The live retargeter is often visually more stable than the offline BVH path for immediate interaction because it avoids quantizing motion into a simplified BVH hierarchy. The tradeoff is that live control is less reusable: a saved BVH can be replayed, inspected, and rendered with different characters, while live retargeting is a stream.
+The live controller is often visually more stable for immediate interaction because it avoids quantizing motion into a simplified BVH hierarchy. The tradeoff is reusability: a saved BVH can be replayed, inspected, and rendered with different characters, while live retargeting is an ephemeral stream.
 
-The learned corrector also clarified the strength of simple baselines. A simple temporal repair baseline is hard to beat when corruptions are short and the underlying motion is smooth, so the final system keeps non-learned repair and rule-based smoothing as the active repair method. The flow model's lower RMSE on long and whole-limb corruptions suggests that learned repair could still help with large failures, but its worse PCK means it often misses the tight 0.02 normalized-coordinate threshold. A practical next version could train a residual model or use learned repair only when confidence diagnostics predict that the baseline will fail.
+The learned corrector also clarified the strength of simple baselines. Temporal interpolation and rule-based smoothing are difficult to beat when corruptions are short and the underlying motion is smooth. The flow model's lower RMSE on long and whole-limb corruptions suggests that learned repair could still help with large failures, but its weaker PCK means it often misses the tight 0.02 normalized-coordinate threshold. A practical next version could train a residual model or apply learned repair only when confidence diagnostics predict that the baseline will fail.
 
 \subsection{Social Impact}
 
-This project can make animation more accessible to students, hobbyists, and children by turning body movement into an immediate creative input. That democratization is valuable, but it is not impact-free. Easier animation tools may increase the volume of low-cost animated content and could make some pose-based prototyping work less scarce for professional animators. We view the system as a sketching and educational tool rather than a replacement for professional animation judgment, but deployment should avoid implying that automated webcam retargeting substitutes artistic labor.
+This project can make animation more accessible to students, hobbyists, and children by turning body movement into an immediate creative input. That democratization is valuable, but it is not impact-free. Easier animation tools may increase the volume of low-cost animated content and could reduce demand for some pose-based prototyping work. We view the system as a sketching and educational tool rather than a replacement for professional animation judgment, but deployment should avoid implying that automated webcam retargeting substitutes artistic labor.
 
 Because the interface can use live or recorded video, privacy is the highest-risk issue, especially for younger users. Webcam-driven tools should make local processing clear, avoid unnecessary retention of video, and communicate when camera data leaves the machine. If the system is used by minors, it should require parent or guardian consent, avoid storing identifiable clips by default, and never use a user's video or pose traces for further training without explicit opt-in. Even pose landmarks can be sensitive behavioral data, so exported overlays, pose JSON, and BVH files should be treated as user data rather than harmless metadata.
 
@@ -275,7 +220,7 @@ Finally, although our prototype is not a conversational companion, self-created 
 
 \section{Conclusion}
 
-We built a working webcam- and video-driven extension to Animated Drawings. The final system preserves the original drawing analysis and ARAP rendering pipeline while adding MediaPipe motion estimation, temporal repair, BVH conversion, live retargeting, and a web interface. The most reliable contribution is the engineering bridge from camera/video pose to the Animated Drawings retargeter. The landmark-flow model is useful as an experiment and partial improvement, but our final design keeps it out of the active pipeline until it consistently improves the primary metrics.
+We built a working webcam- and video-driven extension to Animated Drawings. The final system preserves the original drawing analysis and ARAP rendering pipeline while adding MediaPipe motion estimation, temporal repair, BVH conversion, live retargeting, and a web interface. The main contribution is a practical bridge from camera pose to drawn-character motion. The landmark-flow model remains useful as an experiment, but the deployed system keeps the simpler repair path until learned correction consistently improves the primary metrics.
 
 {\small
 \bibliographystyle{plain}
@@ -285,9 +230,9 @@ We built a working webcam- and video-driven extension to Animated Drawings. The 
 \clearpage
 \section*{Appendix}
 
+\IfFileExists{appendix_realtime_test.png}{
 \subsection*{Realtime Test Screenshot}
 
-\IfFileExists{appendix_realtime_test.png}{
 \begin{figure}[h]
 \centering
 \includegraphics[width=\linewidth]{appendix_realtime_test.png}
@@ -298,9 +243,11 @@ We built a working webcam- and video-driven extension to Animated Drawings. The 
 
 \subsection*{Team contributions}
 
-\begin{description}
-\item[Ian Liu] Integrated externally generated motion into the Animated Drawings rendering workflow, worked on retargeting compatibility between MediaPipe-style BVH files and drawing rigs, configured local and server-side rendering workflows, and implemented or tested the interactive webcam/web application pieces that connect drawings, motion sources, and rendered output.
-\item[Chen-En Ma] Investigated RGB-video-to-motion pipelines, tested 2D pose estimation options including OpenPose and MediaPipe, implemented the MediaPipe pose extraction and video-to-BVH conversion path, and trained/evaluated the landmark-flow correction model for low-confidence landmark repair.
-\end{description}
+\noindent\textbf{Ian Liu.}
+Integrated externally generated motion into the Animated Drawings renderer, worked on retargeting compatibility between MediaPipe-style motion and drawing rigs, configured rendering workflows, and implemented or tested the interactive webcam and web application pieces that connect drawings, motion sources, and rendered output.
+
+\medskip
+\noindent\textbf{Chen-En Ma.}
+Investigated RGB-video-to-motion pipelines, tested 2D pose estimation options including OpenPose and MediaPipe, implemented the MediaPipe pose extraction and video-to-BVH conversion path, and trained/evaluated the landmark-flow correction model for low-confidence landmark repair.
 
 \end{document}
