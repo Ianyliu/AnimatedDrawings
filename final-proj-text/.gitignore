@@ -1,0 +1,36 @@
+# Ignore generated TeX artifacts by default, then opt source files back in.
+*
+!*/
+!.gitignore
+
+# Commit report sources, including BibTeX databases.
+!*.tex
+!*.ltx
+!*.xtx
+!*.sty
+!*.cls
+!*.bib
+!**/*.bib
+!*.bst
+!*.bbx
+!*.cbx
+!*.cfg
+!*.lua
+!*.tikz
+!*.md
+!*.txt
+!*.yaml
+!*.yml
+!*.json
+
+# Keep generated bibliography/build outputs out of git.
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.pdf
+*.synctex.gz

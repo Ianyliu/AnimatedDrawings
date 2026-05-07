@@ -1,0 +1,254 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% CSCI 1430 Written Question Template
+%
+% This is a LaTeX document. LaTeX is a markup language for producing documents.
+% Your task is to answer the questions by filling out this document, then to
+% compile this into a PDF document.
+%
+% To compile, run:
+% > pdflatex thisfile.tex
+
+% If you do not have LaTeX, your options are:
+% - VSCode extension: https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop
+% - Online Tool: https://www.overleaf.com/ - most LaTeX packages are pre-installed here (e.g., \usepackage{}).
+% - Personal laptops (all common OS): http://www.latex-project.org/get/ 
+%
+% If you need help with LaTeX, please come to office hours.
+% Or, there is plenty of help online:
+% https://en.wikibooks.org/wiki/LaTeX
+%
+% Good luck!
+% The CSCI 1430 staff
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% How to include two graphics on the same line:
+% 
+% \includegraphics[width=0.49\linewidth]{yourgraphic1.png}
+% \includegraphics[width=0.49\linewidth]{yourgraphic2.png}
+%
+% How to include equations:
+%
+% \begin{equation}
+% y = mx+c
+% \end{equation}
+% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[11pt]{article}
+
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[colorlinks = true,
+            linkcolor = blue,
+            urlcolor  = blue]{hyperref}
+\usepackage[a4paper,margin=1.5in]{geometry}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\setlength{\headheight}{15pt}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage{enumitem}
+
+\frenchspacing
+\setlength{\parindent}{0cm} % Default is 15pt.
+\setlength{\parskip}{0.3cm plus1mm minus1mm}
+\titlespacing*{\section}{0pt}{0.3\baselineskip}{0.125\baselineskip}
+\titlespacing*{\subsection}{0pt}{0.25\baselineskip}{0.1\baselineskip}
+\setlist[itemize]{itemsep=0.1em, topsep=0.2em, parsep=0pt, partopsep=0pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Final Project Proposal}
+\rhead{CSCI 1430}
+\rfoot{\thepage}
+
+\date{}
+
+\title{\vspace{-1cm}Final Project Proposal}
+\author{}
+
+\begin{document}
+\maketitle
+\vspace{-1cm}
+\thispagestyle{fancy}
+
+\emph{Please make this document anonymous. Your team name should be anonymous.}
+
+\textbf{Team name: \emph{Watch Me Dance}}
+
+% \emph{Note:} when submitting this document to Gradescope, make sure to add all other team members to the submission. This can be done on the submission page after uploading (top right).
+
+% If you need to find team members, please use the thread under ``Final Project - Find Teammates'' on Ed---pitch an idea!
+
+\section*{Project Idea}
+
+Our project extends Meta's \textit{Animated Drawings} system from an offline animation pipeline into a real-time interactive tool. In the original system, users upload a drawing and apply a prerecorded motion clip. We replace this with live motion captured from a webcam or short video, enabling users to directly control animation through their own movements in near real time. Since the existing pipeline expects structured skeletal input (e.g., BVH) and does not support webcam-driven motion, this functionality must be added externally.
+
+The core technical focus is the video/webcam-to-BVH stage. We keep the original animation and rendering pipeline largely unchanged, concentrating instead on estimating a temporally stable human skeleton from RGB video, converting it into a retargetable motion format, and feeding it into the system. Relevant approaches include MocapNET for direct BVH prediction from 2D joints, video2bvh for a structured 2D$\rightarrow$3D$\rightarrow$BVH pipeline, and VideoPose3D for improving temporal consistency across frames.
+
+The final deliverable is a prototype where users can (1) prepare a drawing, (2) provide live or recorded motion, and (3) see their character animated with their own movements. The primary challenge lies not in rendering, but in producing a stable, low-latency, human-like motion representation that can be reliably converted into a usable BVH stream for downstream animation.
+
+\subsection*{Socio-Historical Context}
+
+This project fits into the history of democratizing animation tools. Traditional motion capture often requires expensive equipment and specialized workflows, whereas webcam-driven animation could make the process more immediate and playful for students, hobbyists, and children. At the same time, because the system relies on camera-based human motion analysis, it also raises questions about privacy, accessibility, and bias in pose estimation.
+
+
+% This project lives at the intersection of computer vision, animation, human-computer interaction, and creative tools. Over the last several years, pose estimation from monocular RGB images has become much more accessible due to deep learning, allowing systems to infer body structure and motion without special suits or markers. At the same time, consumer-facing creative AI tools have made it easier for non-experts to generate images, animation, and interactive media. Our project combines these trends by turning body motion into a direct control signal for expressive character animation.
+
+% There is also a broader historical context of democratizing animation. Traditional animation and motion capture pipelines often require expensive equipment, skilled artists, or significant post-processing. Systems such as Animated Drawings are interesting because they lower the barrier to entry: a simple human drawing can become an animated character. Extending such a system to respond to live webcam motion could make animation feel more immediate, playful, and participatory, especially for students, hobbyists, and children. At the same time, because this project uses camera-based human motion analysis, it also raises questions about accessibility, bias in pose estimation systems, and expectations around privacy when cameras are used interactively.
+
+\subsection*{Stakeholders}
+
+\begin{itemize}
+  \item children, casual users, creators
+  \begin{itemize}
+    \item makes animation more accessible and engaging, also making it fun
+  \end{itemize}
+  \item artists, animators, game designers
+  \begin{itemize}
+    \item could accelerate ideation and allow them to do some quick prototyping for motion ideas
+  \end{itemize}
+  \item people being captured on camera 
+  \begin{itemize}
+    \item may negatively affect them through privacy concerns
+  \end{itemize}
+\end{itemize}
+
+
+\subsection*{Team Skill Assessment}
+
+\textbf{Team member \textit{Zion Ma}:} background in Python programming, deep learning, and computer vision; familiarity with pose estimation, reading research code, and integrating multiple repositories.
+
+\textbf{Team member \textit{Ian Liu}:} background in Python and statistical programming, deep and machine learning, medical imaging. 
+
+
+% strength in software engineering and debugging; setting up the end-to-end pipeline, handling input/output formats, and improving runtime performance for webcam inference. He will also do evaluation, visualization, and system testing; preparing videos and drawings for experiments, analyzing latency and animation quality, and documenting qualitative results.
+
+
+\subsection*{Data}
+
+For demos and system testing, we will collect our own short videos and webcam recordings of simple motions such as waving, walking in place, arm raises, and turning. For \textbf{benchmarking or model prototyping}, we may use \href{https://huggingface.co/datasets/keshan/amateur_drawings-controlnet-dataset}{publicly available human pose datasets} or pretrained models if needed, depending on which video-to-BVH approach we adopt. 
+
+% \section*{Data}
+
+% Our project will primarily use two types of data.
+
+% First, for \textbf{system input and demos}, we will collect our own short videos and webcam recordings of team members performing simple actions such as waving, walking in place, arm raises, and turning. This is practical for an interactive project because it directly matches our use case and lets us test webcam performance under realistic classroom conditions.
+
+% Second, for \textbf{benchmarking or model prototyping}, we may use publicly available human pose datasets or pretrained models if needed, depending on which video-to-BVH approach we adopt. Since our goal is not to train a large pose estimator from scratch, we expect to rely mostly on pretrained components and evaluate them in our real-time setting rather than build a new training dataset ourselves.
+
+% For the animated characters, we plan to use drawings processed through Meta's Animated Drawings pipeline. We may use example drawings from the repository as well as our own drawings to test robustness across simple and more stylized figures. 
+
+\subsection*{Software / Hardware}
+
+\textbf{Software}
+\begin{itemize}[itemsep=0pt, topsep=0pt]
+  \item Python, PyTorch, and OpenCV
+  \item Meta Animated Drawings codebase
+  \item Motion-estimation components: MocapNET, \texttt{video2bvh}, and VideoPose3D
+\end{itemize}
+
+% MocapNET is particularly appealing because it is explicitly designed to output BVH-compatible human pose from RGB-derived joints, while \texttt{video2bvh} already implements a pipeline from video to BVH, and VideoPose3D provides a temporal 3D pose backbone that could help stabilize motion over time.
+
+\textbf{Hardware}
+\begin{itemize}[itemsep=0pt, topsep=0pt]
+  \item Personal laptop
+  \item Webcam for live capture
+  \item Oscar server or another GPU machine for faster inference
+\end{itemize}
+
+\subsection*{Who Will Do What}
+
+\textbf{Team member 1 will} investigate literature and repositories for video-to-BVH conversion, compare candidate methods, and lead integration of the pose-estimation stack.
+
+\textbf{Team member 2 will} adapt the chosen pipeline for live webcam input, handle preprocessing and postprocessing, and connect the resulting motion representation to the Animated Drawings system.
+
+All team members will help with testing, debugging, and writing the final report.
+
+\subsection*{How We Will Measure Progress}
+
+We will measure progress using a combination of \textbf{systems metrics} and \textbf{qualitative animation metrics}.
+
+
+\textbf{Systems metrics}: (1) end-to-end latency from webcam frame to animated output, (2) frames per second, (3) temporal smoothness or jitter of the estimated skeleton, (4) robustness to simple motions such as waving, stepping, or turning.
+% \textbf{Systems metrics:}
+% \begin{itemize}
+%     \item end-to-end latency from webcam frame to animated output,
+%     \item frames per second,
+%     \item temporal smoothness or jitter of the estimated skeleton,
+%     \item robustness to simple motions such as waving, stepping, or turning.
+% \end{itemize}
+
+\textbf{Animation quality metrics}: (1) whether the output motion is recognizable as the user's performed action, (2) whether the character remains anatomically plausible during motion, (3) whether the retargeted motion appears smooth rather than twitchy or unstable, (4) whether the pipeline works across multiple drawings, not just one hand-picked example.
+
+% \textbf{Animation quality metrics:}
+% \begin{itemize}
+%     \item whether the output motion is recognizable as the user's performed action,
+%     \item whether the character remains anatomically plausible during motion,
+%     \item whether the retargeted motion appears smooth rather than twitchy or unstable,
+%     \item whether the pipeline works across multiple drawings, not just one hand-picked example.
+% \end{itemize}
+
+% A minimal successful outcome would be a working offline video-to-animation prototype. A stronger outcome would be a near-real-time webcam demo with acceptable latency and stable animation. Our ideal outcome would be a real-time system that can animate at least a small set of simple drawings and human actions robustly.
+
+\subsection*{Technical Problems We Foresee}
+
+The largest anticipated challenge is \textbf{temporal stability}. Frame-by-frame 2D pose estimation is often noisy. 
+
+A second challenge is \textbf{converting estimated pose into a BVH or other retargetable representation} that Animated Drawings can consume without major changes. Even if a model predicts good 2D or 3D joints, the skeleton topology, joint naming, orientation conventions, and coordinate systems may not match what the downstream system expects.
+
+% The existence of repositories such as MocapNET and \texttt{video2bvh} suggests this conversion is feasible, but it remains a nontrivial engineering step.
+
+A third challenge is \textbf{real-time performance}. We may find that some candidate methods work well on prerecorded video but not at interactive frame rates on a webcam feed. Since the Animated Drawings repository does not natively support direct webcam motion input, we may need to build an intermediate layer for streaming pose estimates into the animation pipeline.
+
+% \section*{Guidance}
+
+% It would help us to have guidance on whether there are recommended resources for real-time pose estimation and motion retargeting. 
+
+% We would also appreciate feedback early on about whether it is acceptable to treat Meta's Animated Drawings component mostly as a fixed downstream system, while focusing our main technical effort on the webcam/video-to-BVH problem.
+
+\newpage
+
+% \section*{Proposal Instructions}
+
+% For your project proposal, please submit a one-to-two page document answering the questions below.
+
+% \begin{itemize}
+%   \item What is your project idea?  
+%   \item What is the socio-historical context that this project lives in? 
+%   \item Please list three stakeholders that your project could impact, and describe how it could impact them.
+%   \item What are the skills of the team members? Conduct a skill assessment!
+%   \item What data will you use?
+%   \item What software/hardware will you use?
+%   \item Who will do what? [For anonymity, please use `'`Team member 1 will...'' or, alternatively, take on daring pseudonames.]
+%   \item How will you know whether you have made progress? What will you measure?
+%   \item What technical problems do you foresee or have?
+%   \item Is there anything that we can do to help? E.G., resources, equipment.
+% \end{itemize}
+
+% Feel free to use these as paragraph headings, and also please include any media, references, etc.
+
+% \section*{After Proposal Submission}
+
+% \subsection*{TA Assignment}
+
+% After handing in your project proposal, your team will be assigned a TA to assist you.
+% You should aim to meet with your TA once a week; this replaces TA office hours.
+
+% If you haven't heard from your TA a few days after the project proposal handin, please make a private Ed post and let us know which team you're on.
+
+% In your first meeting with your TA, your goal is to have your idea sanity-checked:
+
+% \begin{itemize}
+%   \item Do you actually have the data?
+%   \item Do you actually have the compute?
+%   \item Is there code you need but don't have access to?
+%   \item Is there an area where you need help?
+% \end{itemize}
+
+% Some of these things will be outlined in your proposals, but talking through it with your TA as soon as possible will help you find potential road blocks and get the ball rolling.
+
+\end{document}
