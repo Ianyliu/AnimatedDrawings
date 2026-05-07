@@ -49,7 +49,7 @@ Traditional character animation separates drawing, rigging, motion capture, reta
 
 Our project asks whether a simple RGB camera can become the control signal for this drawing animation pipeline. This is difficult for three reasons. First, monocular human pose estimates are noisy, especially under occlusion, cropping, and fast motion. Second, MediaPipe, BVH files, and the Animated Drawings rig use different coordinate systems, joint names, depth conventions, and skeleton topologies. Third, the live version must be causal: it cannot rely on future frames to clean up the current estimate.
 
-We address these issues by treating motion estimation as an adapter around the existing renderer. The drawing analysis, mesh construction, ARAP deformation, and rendering code remain largely intact. We add a motion layer that maps RGB video or webcam frames into the retargeter contract expected by Animated Drawings. In offline mode, this layer emits standard artifacts: \texttt{pose\_sequence.json}, \texttt{pose\_overlay.mp4}, \texttt{motion.bvh}, and \texttt{motion.yaml}. In live mode, it estimates pose frame by frame and drives the character directly.
+We address these issues by treating motion estimation as an adapter around the existing renderer. The drawing analysis, mesh construction, ARAP deformation, and rendering code remain largely intact. We add a motion layer that maps RGB video or webcam frames into the retargeter contract expected by Animated Drawings. In offline mode, this layer converts a recorded video into reusable character motion; in live mode, it estimates pose frame by frame and drives the character directly.
 
 \begin{figure*}[t]
     \centering
