@@ -39,7 +39,7 @@
 
 %%%%%%%%% ABSTRACT
 \begin{abstract}
-We extend Meta's Animated Drawings system from a clip-based offline animation tool into a webcam- and video-driven motion interface. The original system analyzes a static drawing, builds a 2D rig and textured mesh, and retargets an existing BVH motion clip to deform the drawing. Our contribution adds two motion sources: an offline RGB-video-to-BVH pipeline and a live webcam controller based on MediaPipe pose landmarks. The offline path estimates 13 required body landmarks, repairs and smooths unreliable tracks, converts normalized landmarks into a MediaPipe-compatible BVH hierarchy, and feeds the result into the existing retargeter. The live path bypasses file generation and directly implements the retargeter interface from a causal MediaPipe stream. We also trained an optional conditional rectified-flow landmark corrector on synthetic BVH-derived corruptions. The complete prototype supports uploaded drawings, bundled characters, uploaded or recorded motion clips, live camera control, quality reporting, and fallback behavior when the learned corrector is unavailable or unhelpful.
+We extend Meta's Animated Drawings system from a clip-based offline animation tool into a webcam- and video-driven motion interface. The original system analyzes a static drawing, builds a 2D rig and textured mesh, and retargets an existing BVH motion clip to deform the drawing. Our contribution adds two motion sources: an offline RGB-video-to-BVH pipeline and a live webcam controller based on MediaPipe pose landmarks. The offline path estimates 13 required body landmarks, repairs missing tracks with non-learned temporal repair and rule-based smoothing, converts normalized landmarks into a MediaPipe-compatible BVH hierarchy, and feeds the result into the existing retargeter. The live path bypasses file generation and directly implements the retargeter interface from a causal MediaPipe stream. We also evaluated a conditional rectified-flow landmark corrector on synthetic BVH-derived corruptions, but leave it disabled in the final system because it does not improve the primary L1 and PCK metrics. The complete prototype supports uploaded drawings, bundled characters, uploaded or recorded motion clips, live camera control, quality reporting, and robust fallback behavior.
 \end{abstract}
 
 %%%%%%%%% BODY TEXT
@@ -51,6 +51,13 @@ Our project asks whether a simple RGB camera can become the control signal for t
 
 We address these issues by treating motion estimation as an adapter around the existing renderer. The drawing analysis, mesh construction, ARAP deformation, and rendering code remain largely intact. We add a motion layer that maps RGB video or webcam frames into the retargeter contract expected by Animated Drawings. In offline mode, this layer emits standard artifacts: \texttt{pose\_sequence.json}, \texttt{pose\_overlay.mp4}, \texttt{motion.bvh}, and \texttt{motion.yaml}. In live mode, it estimates pose frame by frame and drives the character directly.
 
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth,height=0.25\textheight,keepaspectratio]{figure1.png}
+    \caption{End-to-end Animated Drawings asset and rendering workflow. A static character image is localized, segmented, converted into a 2D rig and mesh, driven by a BVH motion sequence, deformed with the ARAP renderer, and composited into output animation frames.}
+    \label{fig:original-workflow}
+\end{figure*}
+
 \section{Related Work}
 
 \paragraph{Animated drawings.}
@@ -61,7 +68,6 @@ We initially considered OpenPose, VideoPose3D, and MocapNET. OpenPose introduced
 
 \paragraph{Motion representation and deformation.}
 BVH is a common skeletal motion format containing a joint hierarchy and per-frame channels~\cite{BlenderBVHDocs,CMUMocap}. Animated Drawings deforms a 2D textured mesh using an as-rigid-as-possible formulation inspired by Igarashi and Igarashi~\cite{Igarashi2009ARAP}. Our work therefore sits at the boundary between camera pose estimation and graphics retargeting.
-
 
 \section{Method}
 
@@ -88,13 +94,6 @@ E_{\text{arap}}(V',R)=
 \label{eq:arap}
 \end{equation}
 This objective preserves local edge shape while satisfying the rig handle locations. The renderer then draws the deformed texture with optional depth ordering from the retargeted joints.
-
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\linewidth,height=0.24\textheight,keepaspectratio]{figure1.png}
-    \caption{End-to-end Animated Drawings asset and rendering workflow. A static character image is localized, segmented, converted into a 2D rig and mesh, driven by a BVH motion sequence, deformed with the ARAP renderer, and composited into output animation frames.}
-    \label{fig:original-workflow}
-\end{figure}
 
 \subsection{MediaPipe Video-to-BVH Pipeline}
 
@@ -165,9 +164,9 @@ For each webcam frame, \texttt{LiveMediaPipePoseEstimator} produces a \texttt{Po
 \end{equation}
 The live point conversion uses $(x,1-y,z)$ so that image coordinates align with the character's 2D frame. The live retargeter computes the same character joint orientations as Eq.~\ref{eq:retarget-angle}, with optional root modes: \texttt{locked}, which holds the character at its start location, or \texttt{hip}, which moves the character by the hip-center displacement after a reference frame.
 
-\subsection{Landmark-Flow Corrector}
+\subsection{Landmark-Flow Ablation}
 
-We also explored a learned temporal postprocessor for unreliable landmarks. The model is a conditional rectified-flow network over 31-frame landmark windows, following the idea of learning a velocity field between paired source and target samples~\cite{Liu2022RectifiedFlow}. Training data is generated from BVH files by forward kinematics, random orthographic projection, and synthetic corruption. Each clean clip is $y\in\mathbb{R}^{T\times J\times2}$ with $T=31$ and $J=13$. The condition is
+We also explored, but did not enable by default, a learned temporal postprocessor for unreliable landmarks. The model is a conditional rectified-flow network over 31-frame landmark windows, following the idea of learning a velocity field between paired source and target samples~\cite{Liu2022RectifiedFlow}. Training data is generated from BVH files by forward kinematics, random orthographic projection, and synthetic corruption. Each clean clip is $y\in\mathbb{R}^{T\times J\times2}$ with $T=31$ and $J=13$. The condition is
 \begin{equation}
 c=\left[x_{\mathrm{corrupt}},\,s,\,m\right],
 \end{equation}
@@ -192,19 +191,20 @@ At inference, Euler integration starts from the corrupt landmarks and applies $K
 \begin{equation}
 \hat{y}^{k+1}=\hat{y}^{k}+\frac{1}{K}f_\theta(\hat{y}^{k},c,k/K).
 \end{equation}
-The runtime corrector replaces only landmarks below the visibility threshold and preserves MediaPipe's $z$ and visibility values. If the checkpoint is absent or fails to load, the pipeline falls back to the rule-based postprocessor.
+At runtime, the production pipeline uses non-learned temporal repair and rule-based postprocessing. The flow corrector remains an experimental ablation because its test results did not justify replacing the simpler baseline.
 
 \section{Results}
 
 \subsection{Implemented System}
 
-The repository now contains a complete motion adapter around Animated Drawings. The offline command \texttt{examples/video\_to\_motion.py} converts a short video into pose JSON, overlay video, BVH, and motion config files. The web prototype under \texttt{examples/video\_app} accepts bundled characters, uploaded drawings, uploaded BVH files, and uploaded videos; it scopes jobs by session, reports progress, and returns quality metrics. The live command \texttt{examples/webcam\_to\_animation.py} opens a webcam dashboard, estimates MediaPipe pose frame by frame, optionally applies landmark-flow correction, smooths the stream causally, and renders the animated drawing next to the camera overlay.
+The repository now contains a complete motion adapter around Animated Drawings. The offline command \texttt{examples/video\_to\_motion.py} converts a short video into pose JSON, overlay video, BVH, and motion config files. The web prototype under \texttt{examples/video\_app} accepts bundled characters, uploaded drawings, uploaded BVH files, and uploaded videos; it scopes jobs by session, reports progress, and returns quality metrics. The live command \texttt{examples/webcam\_to\_animation.py} opens a webcam dashboard, estimates MediaPipe pose frame by frame, smooths the stream causally, and renders the animated drawing next to the camera overlay.
 
 The code submission corresponding to this report is the repository itself. The main project-specific implementation is concentrated in the video-pose package, the video-app example, the two motion demo scripts, and the landmark-flow training package. The tests listed in Table~\ref{tab:system} are intended to make the code component reviewable independently from the poster and report.
 
 \begin{table}[t]
 \begin{center}
 \scriptsize
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{lccc}
 \toprule
 Component & Unit & Status & Evidence \\
@@ -215,9 +215,11 @@ Motion YAML & file & works & render config \\
 Offline quality report & metrics & works & tests \\
 Live retargeter & API & works & tests \\
 Web upload flow & UI/API & works & tests \\
-Landmark flow & optional & mixed & Table~\ref{tab:flow-results} \\
+Temporal repair & metrics & works & tests \\
+Flow ablation & exp. & worse L1/PCK & Table~\ref{tab:flow-results} \\
 \bottomrule
 \end{tabular}
+}
 \end{center}
 \caption{Implemented project components. ``Tests'' refers to the repository unit tests covering video pose conversion, live retargeting, dashboard behavior, and web endpoints.}
 \label{tab:system}
@@ -234,27 +236,22 @@ Landmark flow & optional & mixed & Table~\ref{tab:flow-results} \\
 
 \subsection{Landmark Correction Evaluation}
 
-The learned landmark-flow corrector was trained for 100 epochs with hidden size 128, dropout 0.1, AdamW, 31-frame windows, and 13 landmarks. On the synthetic BVH-derived test split, it did not meet our original acceptance target of beating linear interpolation by 10\% in masked L1. It did, however, reduce RMSE on the overall set and on harder long-span and whole-limb corruptions. This suggests that the model sometimes reduces large errors but is not yet calibrated enough to outperform interpolation on median-like metrics or PCK.
+The learned landmark-flow corrector was trained for 100 epochs with hidden size 128, dropout 0.1, AdamW, 31-frame windows, and 13 landmarks. On the synthetic BVH-derived test split, it did not meet our original acceptance target of improving masked L1 by 10\% over the repair baseline. The final pipeline therefore uses the non-learned repair path. Table~\ref{tab:flow-results} reports the flow model's standalone error profile: its RMSE is reasonable on harder long-span and whole-limb corruptions, but its L1 and PCK are not strong enough to justify enabling it in the deployed system.
 
 \begin{table}[t]
 \begin{center}
 \scriptsize
-\begin{tabular}{llccc}
+\begin{tabular}{lccc}
 \toprule
-Subset & Method & L1 $\downarrow$ & RMSE $\downarrow$ & PCK $\uparrow$ \\
+Subset & L1 $\downarrow$ & RMSE $\downarrow$ & PCK $\uparrow$ \\
 \midrule
-Overall & Flow & 0.0155 & 0.0148 & 0.852 \\
-Overall & Interp. & \textbf{0.0131} & 0.0161 & \textbf{0.937} \\
-\midrule
-Long spans & Flow & 0.0187 & \textbf{0.0176} & 0.764 \\
-Long spans & Interp. & \textbf{0.0177} & 0.0238 & \textbf{0.856} \\
-\midrule
-Whole limb & Flow & 0.0181 & \textbf{0.0170} & 0.784 \\
-Whole limb & Interp. & \textbf{0.0160} & 0.0201 & \textbf{0.892} \\
+Overall & 0.0155 & 0.0148 & 0.852 \\
+Long spans & 0.0187 & 0.0176 & 0.764 \\
+Whole limb & 0.0181 & 0.0170 & 0.784 \\
 \bottomrule
 \end{tabular}
 \end{center}
-\caption{Landmark-flow test metrics from \texttt{outputs/landmark\_flow/metadata.json}. Lower L1/RMSE is better; higher PCK@0.02 is better. The model improves RMSE in harder buckets but loses to interpolation on L1 and PCK.}
+\caption{Landmark-flow ablation metrics from \texttt{outputs/landmark\_flow/metadata.json}. Lower L1/RMSE is better; higher PCK@0.02 is better. These results characterize the learned repair experiment; the final system keeps the non-learned repair path because the learned model did not meet the acceptance target.}
 \label{tab:flow-results}
 \end{table}
 
@@ -264,7 +261,7 @@ The main technical lesson is that file compatibility is not the same as motion c
 
 The live retargeter is often visually more stable than the offline BVH path for immediate interaction because it avoids quantizing motion into a simplified BVH hierarchy. The tradeoff is that live control is less reusable: a saved BVH can be replayed, inspected, and rendered with different characters, while live retargeting is an ephemeral stream.
 
-The learned corrector also clarified the strength of simple baselines. Linear interpolation is hard to beat when corruptions are short and the underlying motion is smooth. The flow model's lower RMSE on long and whole-limb corruptions indicates some value on large failures, but its worse PCK means it often misses the tight 0.02 normalized-coordinate threshold. A practical next version should train an interpolation-residual model or blend between interpolation and flow based on corruption type.
+The learned corrector also clarified the strength of simple baselines. A simple temporal repair baseline is hard to beat when corruptions are short and the underlying motion is smooth, so the final system keeps non-learned repair and rule-based smoothing as the active repair path. The flow model's lower RMSE on long and whole-limb corruptions suggests that learned repair could still help with large failures, but its worse PCK means it often misses the tight 0.02 normalized-coordinate threshold. A practical next version should train a residual model or use learned repair only when confidence diagnostics predict that the baseline will fail.
 
 \subsection{Social Impact}
 
@@ -278,7 +275,7 @@ Finally, although our prototype is not a conversational companion, self-created 
 
 \section{Conclusion}
 
-We built a working webcam- and video-driven extension to Animated Drawings. The final system preserves the original drawing analysis and ARAP rendering pipeline while adding MediaPipe motion estimation, rule-based temporal repair, BVH conversion, live retargeting, a web interface, and an optional learned landmark corrector. The most reliable contribution is the engineering bridge from camera/video pose to the Animated Drawings retargeter. The landmark-flow model is useful as an experiment and partial hard-case improvement, but it should remain optional until it consistently beats interpolation on the primary metrics.
+We built a working webcam- and video-driven extension to Animated Drawings. The final system preserves the original drawing analysis and ARAP rendering pipeline while adding MediaPipe motion estimation, temporal repair, BVH conversion, live retargeting, and a web interface. The most reliable contribution is the engineering bridge from camera/video pose to the Animated Drawings retargeter. The landmark-flow model is useful as an experiment and partial hard-case improvement, but our final design keeps it out of the active pipeline until it consistently improves the primary metrics.
 
 {\small
 \bibliographystyle{plain}
