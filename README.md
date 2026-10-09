@@ -1,13 +1,86 @@
-# Animated Drawings
+# Watch Me Dance: Webcam- and Video-Driven Animated Drawings
 
-![Sequence 02](https://user-images.githubusercontent.com/6675724/219223438-2c93f9cb-d4b5-45e9-a433-149ed76affa6.gif)
+**A Brown University CSCI 1430 computer vision project (2026) by [Ian Liu](https://github.com/Ianyliu) and [Chen-En Ma](https://github.com/Zion-Ma).**
 
-**_Update 09-03-25: This project has been a joy to share with you all. Thanks to this community for your creativity and support along the way. I'm moving on to new adventures and won't be able to maintain this repository anymore, so I've chosen to archive it. If you have questions or want to say hello in the future, come find me at [www.hjessmith.com](http://www.hjessmith.com)._**
- 
-This repo contains an implementation of the algorithm described in the paper, [A Method for Animating Children's Drawings of the Human Figure](https://dl.acm.org/doi/10.1145/3592788). In addition, this repo aims to be a useful creative tool in its own right, allowing you to flexibly create animations starring your own drawn characters. Here's a [video overview](https://www.youtube.com/watch?v=WsMUKQLVsOI) of the project. If you do create something fun with this, let us know! Use hashtag **#FAIRAnimatedDrawings**, or tag me on twitter: [@hjessmith](https://twitter.com/hjessmith/).
+This project extends [Meta AI's Animated Drawings](https://github.com/facebookresearch/AnimatedDrawings), which turns static hand-drawn characters into rigged 2D animations using prerecorded BVH motion. **Our extension allows people to drive those drawings with their own recorded video or live webcam movements**—without needing a motion-capture studio.
 
+This is a **research/course-project prototype built on an existing open-source renderer**, not a new drawing-detection model or a reimplementation of Meta's animation algorithm. The original model, rendering pipeline, paper, and attribution are described [below](#upstream-project-and-attribution).
 
+![Our video-to-motion adapter: pose estimation, temporal repair, BVH conversion, and retargeting](final-proj-text/ProjectFinal_ProjectReportTemplate/figure2.png)
 
+## What We Built
+
+| Mode | New capabilities | Where to look |
+| --- | --- | --- |
+| **Video → reusable motion** | Extract MediaPipe body landmarks from a short RGB clip, handle unreliable detections, generate `pose_sequence.json`, `pose_overlay.mp4`, `motion.bvh`, and `motion.yaml`, and reuse the motion in the original renderer | [Video pose pipeline](animated_drawings/video_pose/), [CLI](examples/video_to_motion.py) |
+| **Interactive web app** | Record or upload a short video, choose a bundled character or upload a drawing, select/upload motion, preview joints, render animations, and inspect progress and diagnostic feedback | [Flask backend and web UI](examples/video_app/) |
+| **Live webcam puppeteering** | Estimate pose continuously and update the drawn character **directly**, without writing an intermediate BVH file or rendered video; show camera tracking and character animation side by side | [Live pose retargeter](animated_drawings/video_pose/live.py), [webcam dashboard](examples/webcam_to_animation.py) |
+| **Optional learned pose repair** | Train/evaluate a conditional rectified-flow model for missing/noisy pose landmarks; provide an experimental inference path with fallback | [Model/training](landmark_flow/), [evaluation and setup](LANDMARK_FLOW_TRAINING.md) |
+
+### My Contributions — Ian Liu
+
+I focused on **motion-retargeting integration and turning a graphics research codebase into usable video/webcam-driven applications**:
+
+1. **Motion integration and compatibility:** adapted custom BVH and MediaPipe-style skeletons to the drawing retargeter, added motion/retargeting configurations, and connected generated motion to the original animation and rendering workflows ([configs](examples/config/retarget/mediapipe_pfp.yaml), [integration scripts](examples/annotations_to_animation.py)).
+2. **Real-time webcam controller:** implemented the live pose-to-character path, including causal smoothing, tracking-quality checks, last-valid-pose fallback, root/pose controls, figure switching, and a side-by-side camera/animation dashboard ([implementation](animated_drawings/video_pose/live.py), [dashboard](examples/webcam_to_animation.py)).
+3. **Offline workflow and user interface:** built and integrated the video-to-motion workflow and local Flask application, with recording/uploads, character and motion selection, pose visualization, rendering, responsive interface components, workflow state, and diagnostics ([pipeline](animated_drawings/video_pose/), [web app](examples/video_app/)).
+4. **Engineering and validation:** updated Apple Silicon/macOS setup around Python 3.9, `uv`, and local TorchServe; addressed video/image compatibility (including phone-photo orientation), added automated tests, and prepared demonstration and report materials ([setup](torchserve/setup_macos.sh), [tests](tests/test_live_pose.py), [project report](final-proj-text/ProjectFinal_ProjectReportTemplate/ProjectFinal_ProjectReportTemplate.tex)).
+
+**Collaboration:** Chen-En Ma investigated video pose-estimation approaches, developed and evaluated the **conditional rectified-flow landmark corrector**, integrated an experimental learned-repair option, and contributed project assets and validation. The MediaPipe/video features were developed as a team, with my principal responsibility being integration, interfaces, and the live/interactive experience. See the [final project report](final-proj-text/ProjectFinal_ProjectReportTemplate/ProjectFinal_ProjectReportTemplate.tex) and [commit history](https://github.com/Ianyliu/AnimatedDrawings/commits/main) for further context.
+
+### How It Works
+
+```text
+Offline: RGB video → MediaPipe pose → temporal repair/smoothing
+                   → MediaPipe-to-BVH adapter → original BVH retargeter
+                   → Meta Animated Drawings renderer → animation
+
+Live:    Webcam → MediaPipe pose → causal filtering / tracking checks
+                → direct live retargeter → character renderer
+                → side-by-side interactive dashboard
+```
+
+The offline path produces **reusable** motion files. The live path prioritizes immediate interaction by avoiding intermediate motion-file serialization. Both reuse Meta's existing character rigs and deformation/rendering system rather than replacing them.
+
+### Try the Extensions
+
+After following [installation](#installation):
+
+```bash
+# Check dependencies and start the locally hosted browser interface
+.venv/bin/python examples/video_app.py --check
+.venv/bin/python examples/video_app.py --port 5060
+# Then open http://127.0.0.1:5060
+
+# Drive a bundled drawing directly from your webcam
+.venv/bin/python examples/webcam_to_animation.py --camera 0
+
+# Convert a short recorded clip into a reusable motion file
+.venv/bin/python examples/video_to_motion.py path/to/video.mp4 ./video_motion_out --max-seconds 10
+
+# Tests for the added video, web-app, and live paths
+.venv/bin/python -m pytest tests/test_video_pose.py tests/test_video_app.py tests/test_live_pose.py
+```
+
+The webcam prototype works with **bundled characters** (or an existing `char_cfg.yaml`) without TorchServe. Uploading a *new, unrigged drawing* uses the original TorchServe-based detection/annotation pipeline. The browser app is a **local** app, not the original Meta-hosted online demo.
+
+### Scope and Limitations
+
+- Recorded-video conversion currently accepts clips of **up to 10 seconds** by default. Simple frontal gestures tend to retarget better than complex out-of-plane motion; monocular pose is **not** metric 3D motion capture.
+- Low-confidence landmarks are repaired using deterministic interpolation/smoothing and tracking safeguards. We also tested a learned rectified-flow corrector, but **did not enable it as the default**: it did not achieve the target improvement in masked L1/PCK over simpler baselines (see the [report](final-proj-text/ProjectFinal_ProjectReportTemplate/ProjectFinal_ProjectReportTemplate.tex)).
+- The live workflow is an interactive **prototype**; stable tracking depends on visible full-body landmarks and a working camera. Camera and uploaded video should be handled as potentially sensitive user data.
+
+## Upstream Project and Attribution
+
+**Original research/software:** Meta/Facebook Research, [Animated Drawings](https://github.com/facebookresearch/AnimatedDrawings), accompanying the paper [*A Method for Animating Children's Drawings of the Human Figure*](https://doi.org/10.1145/3592788) (Smith et al., ACM TOG 2023).
+
+**Original Meta components, not our contributions:** automatic character detection/segmentation/rigging, the pre-existing 2D skeleton and as-rigid-as-possible (ARAP) drawing deformation/rendering engine, pretrained model weights, and the original prerecorded-BVH examples. The animation below is **from the upstream Meta README**, not a demo created by our team.
+
+![Original Meta Animated Drawings demo](https://user-images.githubusercontent.com/6675724/219223438-2c93f9cb-d4b5-45e9-a433-149ed76affa6.gif)
+
+Meta's upstream project was archived in September 2025; this fork contains independent extensions made in 2026. The original usage examples and reference material remain below for compatibility and historical documentation (some original first-person wording refers to the upstream author). The original source and this fork are distributed under the repository's [MIT license](LICENSE).
+
+---
 
 ## Installation
 This branch is set up for Apple Silicon macOS using Python 3.9 and `uv`.
@@ -398,7 +471,7 @@ If you'd like to animate a drawing of your own, but don't want to deal with down
 [www.sketch.metademolab.com](https://sketch.metademolab.com/)
 
 ## Paper & Citation
- If you find the resources in this repo helpful, please consider citing the accompanying paper, [A Method for Animating Children's Drawings of The Human Figure](https://dl.acm.org/doi/10.1145/3592788)).
+ If you find the resources in this repo helpful, please consider citing the accompanying paper, [A Method for Animating Children's Drawings of The Human Figure](https://dl.acm.org/doi/10.1145/3592788).
 
 Citation:
 
@@ -453,7 +526,7 @@ Trained model weights for human-like figure detection and pose estimation are in
 ## As-Rigid-As-Possible Shape Manipulation
 
 These characters are deformed using [As-Rigid-As-Possible (ARAP) shape manipulation](https://www-ui.is.s.u-tokyo.ac.jp/~takeo/papers/takeo_jgt09_arapFlattening.pdf).
-We have a Python implementation of the algorithm, located [here](https://github.com/fairinternal/AnimatedDrawings/blob/main/animated_drawings/model/arap.py), that might be of use to other developers.
+We have a Python implementation of the algorithm, located [here](https://github.com/facebookresearch/AnimatedDrawings/blob/main/animated_drawings/model/arap.py), that might be of use to other developers.
 
 ## License
-Animated Drawings code, model weights, and Amateur Drawings dataset is released under the [MIT license](https://github.com/fairinternal/AnimatedDrawings/blob/main/LICENSE). ChildlikeSHAPES dataset is released under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. 
+Animated Drawings code, model weights, and Amateur Drawings dataset is released under the [MIT license](https://github.com/facebookresearch/AnimatedDrawings/blob/main/LICENSE). ChildlikeSHAPES dataset is released under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. 
