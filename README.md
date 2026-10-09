@@ -72,7 +72,7 @@ flowchart LR
 
 The **recorded path** persists reusable motion files; the **live path** drives the animated character without first writing a BVH file or output video. Both are adapters around Meta's existing character system—not new drawing-detection or animation-foundation models.
 
-## 👨‍💻 My Contributions
+## 👨‍💻 Contributions
 
 **Ian Liu — motion integration, interactive systems, and engineering.** My work concentrated on making externally estimated human pose usable with a hand-drawn character renderer and making the workflow accessible without manually editing motion files.
 
@@ -83,7 +83,7 @@ The **recorded path** persists reusable motion files; the **live path** drives t
 | **Offline and web experience** | Integrated video-to-motion conversion and a Flask/JavaScript interface for recording/uploads, animation previews, rendering workflow, background jobs, and diagnostics. | [Video processing](animated_drawings/video_pose/) · [Web application](examples/video_app/) |
 | **Reliability and developer setup** | Updated the Apple Silicon Python/`uv`/TorchServe workflow, handled phone-photo orientation, and wrote or maintained tests for the live, video, and application paths. | [macOS setup](torchserve/setup_macos.sh) · [Live tests](tests/test_live_pose.py) · [Web tests](tests/test_video_app.py) |
 
-**Teamwork and credit.** [Chen-En Ma](https://github.com/Zion-Ma) investigated pose-estimation alternatives, developed and evaluated the optional **conditional rectified-flow landmark-correction model**, connected the experiment to the pipeline, and contributed character/report assets and validation. We collaborated on the overall video-to-animation prototype. See the [final project report](final-proj-text/ProjectFinal_ProjectReportTemplate/ProjectFinal_ProjectReportTemplate.tex) and [commit history](https://github.com/Ianyliu/AnimatedDrawings/commits/main) for details.
+**[Chen-En Ma](https://github.com/Zion-Ma) ** investigated pose-estimation alternatives, developed and evaluated the **conditional rectified-flow landmark-correction model**, connected the experiment to the pipeline, and contributed character/report assets and validation. We collaborated on the overall video-to-animation prototype. See the [final project report](final-proj-text/ProjectFinal_ProjectReportTemplate/ProjectFinal_ProjectReportTemplate.tex) and [commit history](https://github.com/Ianyliu/AnimatedDrawings/commits/main) for details.
 
 ## 🚀 Quick Start
 
